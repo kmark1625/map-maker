@@ -45,3 +45,4 @@ next-env.d.ts
 
 # muse session state (local-only crash recovery, never commit)
 .muse-session/
+
