@@ -1,23 +1,5 @@
-import Link from "next/link";
-import HelloCounter from "@/components/HelloCounter";
+import TitleScreen from "@/components/TitleScreen";
 
 export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8 text-center">
-      <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-        Hello World
-      </h1>
-      <p className="max-w-md text-balance text-zinc-600 dark:text-zinc-400">
-        Welcome to Map Maker — a Hello World stub built with Next.js,
-        Zustand, and Tailwind CSS.
-      </p>
-      <HelloCounter />
-      <Link
-        href="/assets"
-        className="text-sm font-semibold underline underline-offset-4 transition hover:text-zinc-600 dark:hover:text-zinc-300"
-      >
-        View asset gallery
-      </Link>
-    </main>
-  );
+  return <TitleScreen />;
 }
