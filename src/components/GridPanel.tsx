@@ -1,0 +1,110 @@
+"use client";
+
+import { MAX_N, MIN_N, TERRAINS, useGridStore } from "@/stores/grid-store";
+import { TILE_H } from "@/lib/iso";
+
+export default function GridPanel() {
+  const n = useGridStore((s) => s.n);
+  const setN = useGridStore((s) => s.setN);
+  const activeTerrain = useGridStore((s) => s.activeTerrain);
+  const setActiveTerrain = useGridStore((s) => s.setActiveTerrain);
+  const setTool = useGridStore((s) => s.setTool);
+  const requestFit = useGridStore((s) => s.requestFit);
+  const resetGrid = useGridStore((s) => s.resetGrid);
+  const demoGrid = useGridStore((s) => s.demoGrid);
+
+  return (
+    <section className="rounded-lg border border-stone-300 bg-white p-3">
+      <h2 className="mb-2 text-xs font-semibold tracking-wide text-stone-500 uppercase">
+        Grid
+      </h2>
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-stone-700">Size</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Shrink grid"
+            disabled={n <= MIN_N}
+            onClick={() => setN(n - 1)}
+            className="rounded border border-stone-300 px-2 py-0.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            −
+          </button>
+          <span className="w-14 text-center text-sm tabular-nums">
+            {n}×{n}
+          </span>
+          <button
+            type="button"
+            title="Grow grid"
+            disabled={n >= MAX_N}
+            onClick={() => setN(n + 1)}
+            className="rounded border border-stone-300 px-2 py-0.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">
+        Cubes {TILE_H}×{TILE_H}×{TILE_H} · h fixed · slight iso tilt
+      </p>
+      <div className="mt-2 flex gap-1.5">
+        <button
+          type="button"
+          onClick={requestFit}
+          className="flex-1 rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100"
+        >
+          Fit view
+        </button>
+        <button
+          type="button"
+          onClick={demoGrid}
+          className="flex-1 rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100"
+        >
+          Demo
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm("Reset every cell to grass?")) resetGrid();
+          }}
+          className="flex-1 rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100"
+        >
+          Reset
+        </button>
+      </div>
+
+      <h2 className="mt-3 mb-2 text-xs font-semibold tracking-wide text-stone-500 uppercase">
+        Terrain
+      </h2>
+      <ul className="flex flex-col gap-1">
+        {TERRAINS.map((t) => {
+          const active = t.id === activeTerrain;
+          return (
+            <li key={t.id}>
+              <button
+                type="button"
+                title={`Paint ${t.label} (${t.shortcut})`}
+                onClick={() => {
+                  setActiveTerrain(t.id);
+                  setTool("paint");
+                }}
+                className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                  active
+                    ? "border-teal-700 bg-teal-50 font-medium text-stone-900"
+                    : "border-transparent text-stone-700 hover:border-stone-200 hover:bg-stone-50"
+                }`}
+              >
+                <span
+                  className="h-4 w-4 shrink-0 rounded-sm border border-black/20"
+                  style={{ backgroundColor: t.top }}
+                />
+                <span className="flex-1 text-left">{t.label}</span>
+                <span className="text-xs text-stone-400">{t.shortcut}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   CHARACTER_VARIANTS,
   getVariant,
@@ -46,6 +47,7 @@ function ChevronRight() {
 }
 
 export default function CharacterSelect() {
+  const router = useRouter();
   const selectedId = useCharacterStore((state) => state.selectedId);
   const select = useCharacterStore((state) => state.select);
   const selected = getVariant(selectedId);
@@ -161,11 +163,10 @@ export default function CharacterSelect() {
 
           <button
             type="button"
-            disabled
-            title="The map editor is not built yet"
-            className="mt-4 w-full cursor-not-allowed rounded-lg bg-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+            onClick={() => router.push("/editor")}
+            className="mt-4 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Continue to map editor — coming soon
+            Continue to map editor →
           </button>
         </div>
       </div>
