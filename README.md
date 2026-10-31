@@ -24,3 +24,5 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - `src/app/` — Next.js App Router pages and layout
 - `src/components/` — shared React components
 - `src/stores/` — Zustand stores
+- `public/assets/` — drop-in folder for images; everything here is served
+  at `/assets/<filename>` and shown on the `/assets` gallery page

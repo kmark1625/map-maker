@@ -1,3 +1,4 @@
+import Link from "next/link";
 import HelloCounter from "@/components/HelloCounter";
 
 export default function Home() {
@@ -11,6 +12,12 @@ export default function Home() {
         Zustand, and Tailwind CSS.
       </p>
       <HelloCounter />
+      <Link
+        href="/assets"
+        className="text-sm font-semibold underline underline-offset-4 transition hover:text-zinc-600 dark:hover:text-zinc-300"
+      >
+        View asset gallery
+      </Link>
     </main>
   );
 }
