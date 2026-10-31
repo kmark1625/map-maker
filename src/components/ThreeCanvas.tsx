@@ -41,7 +41,11 @@ interface ViewApi {
   dolly: (factor: number) => void;
 }
 
-export default function ThreeCanvas() {
+export default function ThreeCanvas({
+  readonly = false,
+}: {
+  readonly?: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ViewApi | null>(null);
   const [zoomPct, setZoomPct] = useState(100);
@@ -273,22 +277,24 @@ export default function ThreeCanvas() {
         ) {
           return; // was an orbit drag, not a click
         }
-        const cell = pick(e);
-        const st = useGridStore.getState();
-        if (st.tool === "select") {
-          st.setSelected(cell);
-        } else if (st.tool === "paint") {
-          if (cell) {
-            st.paintCell(cell.x, cell.y);
+        if (!readonly) {
+          const cell = pick(e);
+          const st = useGridStore.getState();
+          if (st.tool === "select") {
             st.setSelected(cell);
+          } else if (st.tool === "paint") {
+            if (cell) {
+              st.paintCell(cell.x, cell.y);
+              st.setSelected(cell);
+            }
+          } else if (st.tool === "erase") {
+            if (cell) {
+              st.eraseCell(cell.x, cell.y);
+              st.setSelected(cell);
+            }
           }
-        } else if (st.tool === "erase") {
-          if (cell) {
-            st.eraseCell(cell.x, cell.y);
-            st.setSelected(cell);
-          }
+          // pan: orbit controls own the drag; click does nothing
         }
-        // pan: orbit controls own the drag; click does nothing
       },
       { signal },
     );
@@ -366,9 +372,13 @@ export default function ThreeCanvas() {
   return (
     <div
       ref={containerRef}
-      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${TOOL_CURSORS[tool]}`}
+      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${readonly ? "cursor-grab" : TOOL_CURSORS[tool]}`}
     >
-      {toolMeta ? (
+      {readonly ? (
+        <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
+          Drag to orbit · Scroll to zoom
+        </div>
+      ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
           <span className="font-semibold text-white">{toolMeta.label}</span> —{" "}
           {toolMeta.hint} · Drag to orbit

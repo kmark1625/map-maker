@@ -1,7 +1,7 @@
 const STEPS = [
   { index: 1, label: "Character select", note: null as string | null },
   { index: 2, label: "Map editor", note: "2.5D" },
-  { index: 3, label: "Map render", note: "TBD" },
+  { index: 3, label: "Map render", note: "3D" },
 ];
 
 export default function FlowSteps({ currentStep }: { currentStep: number }) {
