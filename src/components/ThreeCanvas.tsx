@@ -22,12 +22,37 @@ import {
   ISLAND_W,
   isIslandSolid,
 } from "@/data/floating-island";
+import {
+  ELF_FRAMES,
+  ELF_FRAME_MS,
+  elfFrameLayout,
+  elfFrameUV,
+  type ElfDirectionId,
+} from "@/lib/elf-sprite";
 import type { ToolId } from "@/stores/grid-store";
+import { useCharacterStore } from "@/stores/character-store";
 
 const CUBE = TILE_H; // full h x h x h cubes
 const BG = "#292524"; // stone-800, matches the 2D canvas
 const GROUND = "#1c1917"; // stone-900
 const CLICK_SLOP_PX = 6;
+// Wandering elf sketch on the rendered map: random-walk the grid with a
+// walk-cycle billboard, camera-relative 8-direction facing, and fading
+// element-tinted trail decals on visited tiles.
+const ELF_STEP_MS = 550; // per tile; diagonal steps take ~1.4x
+const ELF_IDLE_MIN_MS = 250;
+const ELF_IDLE_MAX_MS = 800;
+const ELF_SHADOW_R = 15;
+const TRAIL_R = 22;
+const TRAIL_OPACITY = 0.55;
+const TRAIL_MS = 2600;
+const TRAIL_MAX = 48;
+const ELEMENT_TRAIL: Record<string, string> = {
+  fire: "#fb923c",
+  ice: "#7dd3fc",
+  shadow: "#c084fc",
+};
+const FACING_ORDER = ["S", "SE", "E", "NE", "N", "NW", "W", "SW"] as const;
 
 const TILE_URLS: Record<TerrainId, string> = {
   grass: grassTile.src,
@@ -58,6 +83,7 @@ interface ViewApi {
   refreshOverlays: () => void;
   fit: () => void;
   dolly: (factor: number) => void;
+  setWander: (on: boolean) => void;
 }
 
 export default function ThreeCanvas({
@@ -68,6 +94,7 @@ export default function ThreeCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ViewApi | null>(null);
   const [zoomPct, setZoomPct] = useState(100);
+  const [wander, setWanderState] = useState(readonly);
 
   const tool = useGridStore((s) => s.tool);
   const n = useGridStore((s) => s.n);
@@ -150,6 +177,255 @@ export default function ThreeCanvas({
     const islandGroup = new THREE.Group();
     scene.add(islandGroup);
     let cellMeshes: THREE.Mesh[] = [];
+
+    // Wandering elf on the rendered map: a walk-cycle billboard that
+    // random-walks the grid. THREE.Sprite always faces the camera; the
+    // artwork row is picked per-step in camera space so facing stays
+    // correct while orbiting.
+    const elfGroup = new THREE.Group();
+    elfGroup.visible = readonly;
+    scene.add(elfGroup);
+    const elfFeet = new THREE.Vector3(0, CUBE, 0);
+    let elfSprite: THREE.Sprite | null = null;
+    const elfTextures: Record<string, THREE.Texture> = {};
+    const elfShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(ELF_SHADOW_R, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      }),
+    );
+    elfShadow.rotation.x = -Math.PI / 2;
+    elfGroup.add(elfShadow);
+
+    // Wander state: logical cell plus step interpolation between world feet.
+    let wanderOn = readonly;
+    let elfCell: CellCoord = { x: 0, y: 0 };
+    let elfFrom: CellCoord = elfCell;
+    let elfTo: CellCoord = elfCell;
+    let elfT = 1;
+    let stepDur = ELF_STEP_MS;
+    const stepFromW = new THREE.Vector3(0, CUBE, 0);
+    const stepToW = new THREE.Vector3(0, CUBE, 0);
+    let idleUntil = 0;
+    let elfDir: ElfDirectionId = "S";
+    let elfFrame = 0;
+    let lastFrameAt = 0;
+
+    // Swap the billboard to (elfDir, elfFrame): sheet texture, UV crop,
+    // and per-row size/feet anchoring (rows differ across the 2 sheets).
+    const applyElfFrame = () => {
+      if (!elfSprite) return;
+      const layout = elfFrameLayout(elfDir, elfFrame);
+      const tex = elfTextures[layout.url];
+      if (!tex) return; // sheet still loading; keep the previous frame
+      const uv = elfFrameUV(elfDir, elfFrame);
+      tex.repeat.set(uv.u1 - uv.u0, uv.v1 - uv.v0);
+      tex.offset.set(uv.u0, uv.v0);
+      const mat = elfSprite.material as THREE.SpriteMaterial;
+      if (mat.map !== tex) mat.map = tex;
+      elfSprite.scale.set(
+        layout.sw * layout.scale,
+        layout.sh * layout.scale,
+        1,
+      );
+      // Feet sit below the frame center by (footDy - sh/2) image pixels.
+      const lift = (layout.footDy - layout.sh / 2) * layout.scale;
+      elfSprite.position.set(elfFeet.x, CUBE + lift, elfFeet.z);
+    };
+    const tryCreateSprite = () => {
+      if (elfSprite) return;
+      const layout = elfFrameLayout(elfDir, elfFrame);
+      if (!elfTextures[layout.url]) return;
+      elfSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({ transparent: true, depthWrite: false }),
+      );
+      elfGroup.add(elfSprite);
+      applyElfFrame();
+    };
+    if (readonly) {
+      // S lives on sheet 1, SE on sheet 2: together they cover both URLs.
+      for (const id of ["S", "SE"] as const) {
+        const url = elfFrameLayout(id, 0).url;
+        textureLoader.load(
+          url,
+          (tex) => {
+            if (texturesCancelled) {
+              tex.dispose();
+              return;
+            }
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = Math.min(8, maxAniso);
+            elfTextures[url] = tex;
+            tryCreateSprite();
+          },
+          undefined,
+          () => {},
+        );
+      }
+    }
+
+    // Screen-space facing for a grid step, from the movement vector in
+    // camera space: +x is screen right, +y is toward the viewer.
+    const camFwd = new THREE.Vector3();
+    const facingForMove = (from: CellCoord, to: CellCoord): ElfDirectionId => {
+      const mx = to.x - from.x;
+      const mz = to.y - from.y;
+      if (!mx && !mz) return elfDir;
+      camFwd.subVectors(controls.target, camera.position);
+      camFwd.y = 0;
+      if (camFwd.lengthSq() < 1e-6) return "S";
+      camFwd.normalize();
+      const sx = mx * -camFwd.z + mz * camFwd.x;
+      const sy = -(mx * camFwd.x + mz * camFwd.z);
+      const idx =
+        ((Math.round(Math.atan2(sx, sy) / (Math.PI / 4)) % 8) + 8) % 8;
+      return FACING_ORDER[idx];
+    };
+
+    // Random 8-neighbor step, staying dry when a non-water move exists.
+    const pickNext = (): CellCoord => {
+      const { cells } = useGridStore.getState();
+      const all: CellCoord[] = [];
+      const dry: CellCoord[] = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const x = elfCell.x + dx;
+          const y = elfCell.y + dy;
+          if (x < 0 || y < 0 || x >= gridN || y >= gridN) continue;
+          const c = { x, y };
+          all.push(c);
+          if (terrainAt(cells, x, y) !== "water") dry.push(c);
+        }
+      }
+      const pool = dry.length ? dry : all;
+      return pool[(Math.random() * pool.length) | 0] ?? elfCell;
+    };
+
+    // Tile-effect hook: a fading element-tinted decal where the elf steps.
+    // Color follows the selected character variant (fire/ice/shadow).
+    const trailGeo = new THREE.CircleGeometry(TRAIL_R, 24);
+    const trails: { mesh: THREE.Mesh; born: number }[] = [];
+    const spawnTileEffect = (cell: CellCoord, now: number) => {
+      const p = cellCenter(cell, gridN);
+      const selected = useCharacterStore.getState().selectedId;
+      const mesh = new THREE.Mesh(
+        trailGeo,
+        new THREE.MeshBasicMaterial({
+          color: ELEMENT_TRAIL[selected] ?? ELEMENT_TRAIL.ice,
+          transparent: true,
+          opacity: TRAIL_OPACITY,
+          depthWrite: false,
+        }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(p.x, CUBE + 0.6, p.z);
+      elfGroup.add(mesh);
+      trails.push({ mesh, born: now });
+      while (trails.length > TRAIL_MAX) {
+        const old = trails.shift();
+        if (old) {
+          elfGroup.remove(old.mesh);
+          (old.mesh.material as THREE.Material).dispose();
+        }
+      }
+    };
+    const updateTrails = (now: number) => {
+      for (let i = trails.length - 1; i >= 0; i--) {
+        const t = trails[i];
+        const age = (now - t.born) / TRAIL_MS;
+        if (age >= 1) {
+          elfGroup.remove(t.mesh);
+          (t.mesh.material as THREE.Material).dispose();
+          trails.splice(i, 1);
+        } else {
+          (t.mesh.material as THREE.MeshBasicMaterial).opacity =
+            TRAIL_OPACITY * (1 - age);
+        }
+      }
+    };
+
+    const smooth = (t: number) => t * t * (3 - 2 * t);
+    const updateWander = (now: number, dt: number) => {
+      if (!wanderOn || !elfSprite) return;
+      if (elfT < 1) {
+        elfT = Math.min(1, elfT + dt / stepDur);
+        elfFeet.lerpVectors(stepFromW, stepToW, smooth(elfT));
+        elfDir = facingForMove(elfFrom, elfTo);
+        if (now - lastFrameAt >= ELF_FRAME_MS) {
+          lastFrameAt = now;
+          elfFrame = (elfFrame + 1) % ELF_FRAMES;
+        }
+        applyElfFrame();
+        elfShadow.position.set(elfFeet.x, CUBE + 0.5, elfFeet.z);
+        if (elfT >= 1) {
+          elfCell = elfTo;
+          spawnTileEffect(elfCell, now);
+          idleUntil =
+            now +
+            ELF_IDLE_MIN_MS +
+            Math.random() * (ELF_IDLE_MAX_MS - ELF_IDLE_MIN_MS);
+        }
+      } else if (now >= idleUntil) {
+        const next = pickNext();
+        elfFrom = elfCell;
+        elfTo = next;
+        elfT = 0;
+        const a = cellCenter(elfFrom, gridN);
+        const b = cellCenter(elfTo, gridN);
+        stepFromW.set(a.x, CUBE, a.z);
+        stepToW.set(b.x, CUBE, b.z);
+        stepDur =
+          ELF_STEP_MS *
+          Math.hypot(next.x - elfCell.x, next.y - elfCell.y);
+        elfDir = facingForMove(elfFrom, elfTo);
+        elfFrame = 0;
+        lastFrameAt = now;
+        applyElfFrame();
+      }
+    };
+
+    const placeElf = () => {
+      const c = {
+        x: Math.floor(gridN / 2),
+        y: Math.floor(gridN / 2),
+      };
+      elfCell = c;
+      elfFrom = c;
+      elfTo = c;
+      elfT = 1;
+      const p = cellCenter(c, gridN);
+      elfFeet.set(p.x, CUBE, p.z);
+      stepFromW.set(p.x, CUBE, p.z);
+      stepToW.set(p.x, CUBE, p.z);
+      elfShadow.position.set(p.x, CUBE + 0.5, p.z);
+      idleUntil = performance.now() + 600;
+      for (const t of trails) {
+        elfGroup.remove(t.mesh);
+        (t.mesh.material as THREE.Material).dispose();
+      }
+      trails.length = 0;
+      if (elfSprite) {
+        elfDir = "S";
+        elfFrame = 0;
+        applyElfFrame();
+      }
+    };
+
+    const setWander = (on: boolean) => {
+      wanderOn = on;
+      const now = performance.now();
+      if (on) {
+        idleUntil = now + 200;
+        lastFrameAt = now;
+      } else if (elfSprite) {
+        elfFrame = 0;
+        applyElfFrame();
+      }
+    };
 
     const slabTop = new THREE.Mesh(
       new THREE.BoxGeometry(1, 20, 1),
@@ -310,6 +586,7 @@ export default function ThreeCanvas({
         }
       }
       refreshOverlays();
+      placeElf();
       fit();
     };
 
@@ -408,17 +685,30 @@ export default function ThreeCanvas({
     controls.addEventListener("change", reportZoom);
 
     let raf = 0;
+    let lastNow = performance.now();
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = Math.min(100, now - lastNow);
+      lastNow = now;
       if (pendingHover) {
         useGridStore.getState().setHover(pick(pendingHover));
         pendingHover = null;
       }
+      updateWander(now, dt);
+      updateTrails(now);
       controls.update();
       renderer.render(scene, camera);
     };
 
-    apiRef.current = { rebuild, recolor, refreshOverlays, fit, dolly };
+    apiRef.current = {
+      rebuild,
+      recolor,
+      refreshOverlays,
+      fit,
+      dolly,
+      setWander,
+    };
 
     const ro = new ResizeObserver(() => resize());
     ro.observe(container);
@@ -429,6 +719,12 @@ export default function ThreeCanvas({
       cancelAnimationFrame(raf);
       texturesCancelled = true;
       loadedTextures.forEach((t) => t.dispose());
+      Object.values(elfTextures).forEach((t) => t.dispose());
+      trailGeo.dispose();
+      for (const t of trails) {
+        (t.mesh.material as THREE.Material).dispose();
+      }
+      if (elfSprite) (elfSprite.material as THREE.Material).dispose();
       ro.disconnect();
       aborter.abort();
       controls.removeEventListener("change", reportZoom);
@@ -469,8 +765,27 @@ export default function ThreeCanvas({
       className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${readonly ? "cursor-grab" : TOOL_CURSORS[tool]}`}
     >
       {readonly ? (
-        <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
-          Drag to orbit · Scroll to zoom
+        <div className="absolute top-3 left-3 flex items-center gap-2">
+          <div className="pointer-events-none rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
+            Drag to orbit · Scroll to zoom
+          </div>
+          <button
+            type="button"
+            title={wander ? "Pause the wandering elf" : "Let the elf wander"}
+            aria-pressed={wander}
+            onClick={() => {
+              const next = !wander;
+              setWanderState(next);
+              apiRef.current?.setWander(next);
+            }}
+            className={`rounded-md border px-2.5 py-1.5 text-xs shadow-sm ${
+              wander
+                ? "border-sky-600 bg-sky-600/90 font-semibold text-white"
+                : "border-stone-600 bg-stone-900/90 text-stone-300 hover:bg-stone-700"
+            }`}
+          >
+            {wander ? "Wandering…" : "Wander"}
+          </button>
         </div>
       ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
