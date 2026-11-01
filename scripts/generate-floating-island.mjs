@@ -9,8 +9,11 @@
 // row, x is the grid column, matching grid-store cell coordinates on the
 // default 12x12 grid.
 //
-// Shape: iceberg-style floating island — full upper layers tapering down to
-// a narrow keel, with seeded value noise so regeneration is deterministic.
+// Shape: iceberg-style floating island matching
+// src/app/assets/images/concept_art/floating_island.jpg — a full rounded-square
+// plateau with sheer upper cliffs, an accelerating taper through the mid
+// strata, and a narrow jagged keel, with seeded value noise so regeneration
+// is deterministic.
 
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -18,7 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const W = 12;
 const D = 12;
-const H = 16;
+const H = 10;
 const SEED = 1337;
 
 // Deterministic PRNG (mulberry32).
@@ -72,10 +75,23 @@ function noise(x, y, z) {
 const cx = (W - 1) / 2;
 const cy = (D - 1) / 2;
 
-// Radius profile: full footprint at the top, tapering to a narrow tip.
+// Rounded-square distance (superellipse, p = 4): the concept island is a
+// chunky plateau with rounded corners, not a cone — Chebyshev (p = inf)
+// would keep sharp corners, Euclidean (p = 2) would round it to a disc.
+function shapeDist(x, y) {
+  const dx = Math.abs(x - cx);
+  const dy = Math.abs(y - cy);
+  return (dx ** 4 + dy ** 4) ** (1 / 4);
+}
+
+// Half-width profile: sheer cliffs just under the cap (the concept's icy
+// upper walls drop near-vertically), then an accelerating taper to the
+// dark keel. Corner superellipse distance is ~6.55, edge midpoint 5.5.
+const CAP_Z = 3; // z < CAP_Z is solid, flush under the terrain layer
 function radiusAt(z) {
-  const t = z / (H - 1);
-  return 8.4 + (1.05 - 8.4) * Math.pow(t, 0.85);
+  if (z < CAP_Z) return Infinity;
+  const t = (z - (CAP_Z - 1)) / (H - 1 - (CAP_Z - 1));
+  return 0.95 + (6.9 - 0.95) * (1 - Math.pow(t, 1.7));
 }
 
 const volume = [];
@@ -85,12 +101,12 @@ for (let z = 0; z < H; z++) {
   for (let y = 0; y < D; y++) {
     const row = [];
     for (let x = 0; x < W; x++) {
-      if (z < 2) {
+      if (z < CAP_Z) {
         row.push(1); // solid cap: sits flush under the terrain layer
         continue;
       }
-      const d = Math.hypot(x - cx, y - cy);
-      const wobble = (noise(x, y, z) - 0.5) * 2.4;
+      const d = shapeDist(x, y);
+      const wobble = (noise(x, y, z) - 0.5) * 2.2;
       row.push(d + wobble < r ? 1 : 0);
     }
     layer.push(row);
@@ -116,7 +132,10 @@ for (let z = 0; z < H; z++) {
 let total = 0;
 for (let z = 0; z < H; z++) {
   let count = 0;
-  console.log(`--- layer z=${z} (radius ${radiusAt(z).toFixed(2)}) ---`);
+  const r = radiusAt(z);
+  console.log(
+    `--- layer z=${z} (${z < CAP_Z ? "solid cap" : `radius ${r.toFixed(2)}`}) ---`,
+  );
   for (let y = 0; y < D; y++) {
     let line = "";
     for (let x = 0; x < W; x++) {

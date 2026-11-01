@@ -73,9 +73,11 @@ const SURFACE_SIDE_URL = cliffLipTile.src;
 const ROCK_SIDE_URL = bareRockTile.src;
 const ICE_SIDE_URL = sideTile.src;
 const DEEP_SIDE_URL = deepRockTile.src;
-// z = 0 is the cap under the terrain, increasing downward (ISLAND_H = 16).
-const ROCK_MAX_Z = 5;
-const ICE_MAX_Z = 9;
+// z = 0 is the cap under the terrain, increasing downward (ISLAND_H = 10).
+// Bands follow the concept art: icy blue cliffs up top, pale ice strata mid,
+// dark purple underbelly at the keel.
+const ROCK_MAX_Z = 3;
+const ICE_MAX_Z = 6;
 function islandSideBand(z: number): number {
   if (z <= ROCK_MAX_Z) return 0;
   if (z <= ICE_MAX_Z) return 1;
