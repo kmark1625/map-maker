@@ -2,10 +2,13 @@
   "name": "map-maker",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://kmark1625.github.io/map-maker",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist",
     "lint": "eslint",
     "generate:island": "node scripts/generate-floating-island.mjs"
   },
@@ -24,6 +27,7 @@
     "@types/three": "^0.187.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "gh-pages": "^6.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
