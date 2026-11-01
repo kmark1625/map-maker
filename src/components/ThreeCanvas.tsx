@@ -99,6 +99,8 @@ function cellCenter(cell: CellCoord, n: number): THREE.Vector3 {
   );
 }
 
+type LightingPreset = "classic" | "vibrant";
+
 interface ViewApi {
   rebuild: (n: number) => void;
   recolor: (cells: Record<string, TerrainId>) => void;
@@ -106,6 +108,7 @@ interface ViewApi {
   fit: () => void;
   dolly: (factor: number) => void;
   setWander: (on: boolean) => void;
+  setLighting: (preset: LightingPreset) => void;
 }
 
 export default function ThreeCanvas({
@@ -117,6 +120,7 @@ export default function ThreeCanvas({
   const apiRef = useRef<ViewApi | null>(null);
   const [zoomPct, setZoomPct] = useState(100);
   const [wander, setWanderState] = useState(readonly);
+  const [lighting, setLightingState] = useState<LightingPreset>("vibrant");
 
   const tool = useGridStore((s) => s.tool);
   const n = useGridStore((s) => s.n);
@@ -146,10 +150,41 @@ export default function ThreeCanvas({
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = readonly ? Math.PI * 0.8 : Math.PI * 0.495;
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65));
+    // Sample lighting test: "classic" is the original flat white rig, while
+    // "vibrant" tries a warm key + cool fill + violet under-bounce to match
+    // the saturated look of the 2.5D render. Toggled from the render view.
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 0.45);
     sun.position.set(0.8, 1.5, 1);
     scene.add(sun);
+    const fill = new THREE.DirectionalLight(0x9ecfff, 0);
+    fill.position.set(-1, 0.5, -0.8);
+    scene.add(fill);
+    const underglow = new THREE.DirectionalLight(0x7a6cff, 0);
+    underglow.position.set(0.2, -1, 0.3);
+    scene.add(underglow);
+    const setLighting = (preset: LightingPreset) => {
+      if (preset === "vibrant") {
+        hemi.color.set(0xbfe3ff);
+        hemi.groundColor.set(0x9a8f7a);
+        hemi.intensity = 0.9;
+        sun.color.set(0xffe3b3);
+        sun.intensity = 1.4;
+        sun.position.set(1.0, 1.1, 0.7);
+        fill.intensity = 0.5;
+        underglow.intensity = 0.35;
+      } else {
+        hemi.color.set(0xffffff);
+        hemi.groundColor.set(0x8a8478);
+        hemi.intensity = 0.65;
+        sun.color.set(0xffffff);
+        sun.intensity = 0.45;
+        sun.position.set(0.8, 1.5, 1);
+        fill.intensity = 0;
+        underglow.intensity = 0;
+      }
+    };
 
     // Per-face materials: textured top, textured sides + dark bottom.
     // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
@@ -797,6 +832,7 @@ export default function ThreeCanvas({
       fit,
       dolly,
       setWander,
+      setLighting,
     };
 
     const ro = new ResizeObserver(() => resize());
@@ -845,6 +881,9 @@ export default function ThreeCanvas({
   useEffect(() => {
     apiRef.current?.fit();
   }, [fitSignal]);
+  useEffect(() => {
+    if (readonly) apiRef.current?.setLighting(lighting);
+  }, [lighting, readonly]);
 
   const toolMeta = TOOLS.find((t) => t.id === tool);
 
@@ -875,6 +914,28 @@ export default function ThreeCanvas({
           >
             {wander ? "Wandering…" : "Wander"}
           </button>
+          <div
+            role="group"
+            aria-label="Lighting preset"
+            className="flex overflow-hidden rounded-md border border-stone-600 shadow-sm"
+          >
+            {(["classic", "vibrant"] as const).map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                title={`Switch to ${preset} lighting`}
+                aria-pressed={lighting === preset}
+                onClick={() => setLightingState(preset)}
+                className={`px-2.5 py-1.5 text-xs capitalize ${
+                  lighting === preset
+                    ? "bg-amber-500/90 font-semibold text-white"
+                    : "bg-stone-900/90 text-stone-300 hover:bg-stone-700"
+                }`}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
         </div>
       ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
