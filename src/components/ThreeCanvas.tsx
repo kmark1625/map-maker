@@ -11,6 +11,12 @@ import {
   type TerrainId,
 } from "@/stores/grid-store";
 import { TILE_H, type CellCoord } from "@/lib/iso";
+import {
+  ISLAND_D,
+  ISLAND_H,
+  ISLAND_W,
+  isIslandSolid,
+} from "@/data/floating-island";
 import type { ToolId } from "@/stores/grid-store";
 
 const CUBE = TILE_H; // full h x h x h cubes
@@ -76,7 +82,7 @@ export default function ThreeCanvas({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.maxPolarAngle = readonly ? Math.PI * 0.8 : Math.PI * 0.495;
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65));
     const sun = new THREE.DirectionalLight(0xffffff, 0.45);
@@ -88,8 +94,11 @@ export default function ThreeCanvas({
     ) as Record<TerrainId, THREE.MeshLambertMaterial>;
 
     const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
+    const islandMat = new THREE.MeshLambertMaterial({ color: "#8d8781" });
     const gridGroup = new THREE.Group();
     scene.add(gridGroup);
+    const islandGroup = new THREE.Group();
+    scene.add(islandGroup);
     let cellMeshes: THREE.Mesh[] = [];
 
     const slabTop = new THREE.Mesh(
@@ -112,6 +121,11 @@ export default function ThreeCanvas({
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -46;
     scene.add(ground);
+
+    // Render step: the island floats free — no slab or ground plane.
+    slabTop.visible = !readonly;
+    slabBase.visible = !readonly;
+    ground.visible = !readonly;
 
     const selectedBox = new THREE.LineSegments(
       new THREE.EdgesGeometry(
@@ -151,7 +165,11 @@ export default function ThreeCanvas({
     };
 
     const fit = () => {
-      const radius = Math.hypot(gridN * CUBE, gridN * CUBE) / 2 + CUBE * 0.75;
+      const footprint = Math.hypot(gridN * CUBE, gridN * CUBE) / 2;
+      const top = CUBE;
+      const bottom = readonly ? -ISLAND_H * CUBE : 0;
+      const radius =
+        Math.hypot(footprint, readonly ? (top - bottom) / 2 : 0) + CUBE * 0.75;
       const vFov = THREE.MathUtils.degToRad(camera.fov);
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
       const dist = radius / Math.sin(Math.min(vFov, hFov) / 2);
@@ -163,7 +181,11 @@ export default function ThreeCanvas({
         Math.cos(polar),
         Math.sin(polar) * Math.cos(azim),
       );
-      const target = new THREE.Vector3(0, CUBE * 0.25, 0);
+      const target = new THREE.Vector3(
+        0,
+        readonly ? (top + bottom) / 2 : CUBE * 0.25,
+        0,
+      );
       camera.position.copy(target).addScaledVector(dir, dist);
       camera.near = Math.max(1, dist / 100);
       camera.far = dist * 20;
@@ -217,6 +239,26 @@ export default function ThreeCanvas({
       const slabW = nextN * CUBE + 32;
       slabTop.scale.set(slabW, 1, slabW);
       slabBase.scale.set(slabW, 1, slabW);
+      islandGroup.clear();
+      if (readonly) {
+        // Center the sample island under the grid, clipping to grid bounds.
+        const ox = Math.floor((nextN - ISLAND_W) / 2);
+        const oy = Math.floor((nextN - ISLAND_D) / 2);
+        for (let z = 0; z < ISLAND_H; z++) {
+          for (let y = 0; y < ISLAND_D; y++) {
+            for (let x = 0; x < ISLAND_W; x++) {
+              if (!isIslandSolid(x, y, z)) continue;
+              const gx = x + ox;
+              const gy = y + oy;
+              if (gx < 0 || gy < 0 || gx >= nextN || gy >= nextN) continue;
+              const mesh = new THREE.Mesh(cubeGeo, islandMat);
+              const p = cellCenter({ x: gx, y: gy }, nextN);
+              mesh.position.set(p.x, -(z * CUBE + CUBE / 2), p.z);
+              islandGroup.add(mesh);
+            }
+          }
+        }
+      }
       refreshOverlays();
       fit();
     };
