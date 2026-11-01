@@ -16,6 +16,7 @@ import waterTile from "@/app/assets/images/tiles/water.webp";
 import sandTile from "@/app/assets/images/tiles/sand.webp";
 import stoneTile from "@/app/assets/images/tiles/stone.webp";
 import forestTile from "@/app/assets/images/tiles/forest.webp";
+import sideTile from "@/app/assets/images/side_tiles/side_icy_mountain.webp";
 import {
   ISLAND_D,
   ISLAND_H,
@@ -61,6 +62,10 @@ const TILE_URLS: Record<TerrainId, string> = {
   stone: stoneTile.src,
   forest: forestTile.src,
 };
+
+// Default side texture shared by every terrain's cube sides (and the island
+// rock below): one cliff face per cube face. First version — tuning follows.
+const SIDE_URL = sideTile.src;
 
 const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
@@ -129,16 +134,27 @@ export default function ThreeCanvas({
     sun.position.set(0.8, 1.5, 1);
     scene.add(sun);
 
-    // Per-face materials: textured top, flat shaded sides + dark bottom.
+    // Per-face materials: textured top, textured sides + dark bottom.
     // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
     const terrainTopMats = Object.fromEntries(
       TERRAINS.map((t) => [t.id, new THREE.MeshLambertMaterial({ color: t.top })]),
     ) as Record<TerrainId, THREE.MeshLambertMaterial>;
+    const terrainSideMats = Object.fromEntries(
+      TERRAINS.map((t) => [
+        t.id,
+        {
+          left: new THREE.MeshLambertMaterial({ color: t.left }),
+          right: new THREE.MeshLambertMaterial({ color: t.right }),
+        },
+      ]),
+    ) as Record<
+      TerrainId,
+      { left: THREE.MeshLambertMaterial; right: THREE.MeshLambertMaterial }
+    >;
     const bottomMat = new THREE.MeshLambertMaterial({ color: "#292524" });
     const terrainBoxMats = Object.fromEntries(
       TERRAINS.map((t) => {
-        const left = new THREE.MeshLambertMaterial({ color: t.left });
-        const right = new THREE.MeshLambertMaterial({ color: t.right });
+        const { left, right } = terrainSideMats[t.id];
         return [t.id, [right, left, terrainTopMats[t.id], bottomMat, right, left]];
       }),
     ) as Record<TerrainId, THREE.MeshLambertMaterial[]>;
@@ -170,8 +186,48 @@ export default function ThreeCanvas({
       );
     }
 
+    // Default side texture, shared by every terrain's cube sides and the
+    // island rock faces. Sides keep their flat terrain colors until it
+    // arrives, then show the texture at full color like the tops do.
+    textureLoader.load(
+      SIDE_URL,
+      (tex) => {
+        if (texturesCancelled) {
+          tex.dispose();
+          return;
+        }
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(8, maxAniso);
+        loadedTextures.push(tex);
+        for (const t of TERRAINS) {
+          for (const mat of [
+            terrainSideMats[t.id].left,
+            terrainSideMats[t.id].right,
+          ]) {
+            mat.map = tex;
+            mat.color.set("#ffffff");
+            mat.needsUpdate = true;
+          }
+        }
+        islandSideMat.map = tex;
+        islandSideMat.needsUpdate = true;
+      },
+      undefined,
+      () => {},
+    );
+
     const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
     const islandMat = new THREE.MeshLambertMaterial({ color: "#8d8781" });
+    const islandSideMat = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+    // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
+    const islandBoxMats = [
+      islandSideMat,
+      islandSideMat,
+      islandMat,
+      islandMat,
+      islandSideMat,
+      islandSideMat,
+    ];
     const gridGroup = new THREE.Group();
     scene.add(gridGroup);
     const islandGroup = new THREE.Group();
@@ -577,7 +633,7 @@ export default function ThreeCanvas({
               const gx = x + ox;
               const gy = y + oy;
               if (gx < 0 || gy < 0 || gx >= nextN || gy >= nextN) continue;
-              const mesh = new THREE.Mesh(cubeGeo, islandMat);
+              const mesh = new THREE.Mesh(cubeGeo, islandBoxMats);
               const p = cellCenter({ x: gx, y: gy }, nextN);
               mesh.position.set(p.x, -(z * CUBE + CUBE / 2), p.z);
               islandGroup.add(mesh);

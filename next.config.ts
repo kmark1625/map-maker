@@ -2,8 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  output: "export",
+  basePath: "/map-maker",
+  images: { unoptimized: true },
   turbopack: {
     rules: {
       "*.css": {

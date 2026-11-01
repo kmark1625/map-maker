@@ -3,10 +3,7 @@ import path from "node:path";
 import Image from "next/image";
 import Link from "next/link";
 
-// The gallery reads public/assets/ fresh on every request so newly dropped
-// files appear on refresh. Allow blocking on that runtime data instead of
-// prerendering statically (required with cacheComponents).
-export const instant = false;
+// Static export: the gallery lists public/assets/ at build time.
 
 const IMAGE_EXTENSIONS = new Set([
   ".png",

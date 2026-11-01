@@ -2,13 +2,12 @@
   "name": "map-maker",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://kmark1625.github.io/map-maker",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist",
+    "deploy": "gh-pages -d out --nojekyll",
     "lint": "eslint",
     "generate:island": "node scripts/generate-floating-island.mjs"
   },
