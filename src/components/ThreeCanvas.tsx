@@ -11,6 +11,11 @@ import {
   type TerrainId,
 } from "@/stores/grid-store";
 import { TILE_H, type CellCoord } from "@/lib/iso";
+import grassTile from "@/app/assets/images/tiles/grass.webp";
+import waterTile from "@/app/assets/images/tiles/water.webp";
+import sandTile from "@/app/assets/images/tiles/sand.webp";
+import stoneTile from "@/app/assets/images/tiles/stone.webp";
+import forestTile from "@/app/assets/images/tiles/forest.webp";
 import {
   ISLAND_D,
   ISLAND_H,
@@ -23,6 +28,14 @@ const CUBE = TILE_H; // full h x h x h cubes
 const BG = "#292524"; // stone-800, matches the 2D canvas
 const GROUND = "#1c1917"; // stone-900
 const CLICK_SLOP_PX = 6;
+
+const TILE_URLS: Record<TerrainId, string> = {
+  grass: grassTile.src,
+  water: waterTile.src,
+  sand: sandTile.src,
+  stone: stoneTile.src,
+  forest: forestTile.src,
+};
 
 const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
@@ -89,9 +102,46 @@ export default function ThreeCanvas({
     sun.position.set(0.8, 1.5, 1);
     scene.add(sun);
 
-    const terrainMats = Object.fromEntries(
+    // Per-face materials: textured top, flat shaded sides + dark bottom.
+    // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
+    const terrainTopMats = Object.fromEntries(
       TERRAINS.map((t) => [t.id, new THREE.MeshLambertMaterial({ color: t.top })]),
     ) as Record<TerrainId, THREE.MeshLambertMaterial>;
+    const bottomMat = new THREE.MeshLambertMaterial({ color: "#292524" });
+    const terrainBoxMats = Object.fromEntries(
+      TERRAINS.map((t) => {
+        const left = new THREE.MeshLambertMaterial({ color: t.left });
+        const right = new THREE.MeshLambertMaterial({ color: t.right });
+        return [t.id, [right, left, terrainTopMats[t.id], bottomMat, right, left]];
+      }),
+    ) as Record<TerrainId, THREE.MeshLambertMaterial[]>;
+
+    // Load tile textures asynchronously; tops keep their flat terrain color
+    // until each texture arrives, then switch to the true texture colors.
+    const textureLoader = new THREE.TextureLoader();
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    const loadedTextures: THREE.Texture[] = [];
+    let texturesCancelled = false;
+    for (const t of TERRAINS) {
+      textureLoader.load(
+        TILE_URLS[t.id],
+        (tex) => {
+          if (texturesCancelled) {
+            tex.dispose();
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = Math.min(8, maxAniso);
+          loadedTextures.push(tex);
+          const mat = terrainTopMats[t.id];
+          mat.map = tex;
+          mat.color.set("#ffffff");
+          mat.needsUpdate = true;
+        },
+        undefined,
+        () => {},
+      );
+    }
 
     const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
     const islandMat = new THREE.MeshLambertMaterial({ color: "#8d8781" });
@@ -228,7 +278,7 @@ export default function ThreeCanvas({
         for (let x = 0; x < nextN; x++) {
           const mesh = new THREE.Mesh(
             cubeGeo,
-            terrainMats[terrainAt(state.cells, x, y)],
+            terrainBoxMats[terrainAt(state.cells, x, y)],
           );
           mesh.position.copy(cellCenter({ x, y }, nextN));
           mesh.userData.cell = { x, y };
@@ -266,7 +316,7 @@ export default function ThreeCanvas({
     const recolor = (nextCells: Record<string, TerrainId>) => {
       for (const mesh of cellMeshes) {
         const c = mesh.userData.cell as CellCoord;
-        mesh.material = terrainMats[terrainAt(nextCells, c.x, c.y)];
+        mesh.material = terrainBoxMats[terrainAt(nextCells, c.x, c.y)];
       }
     };
 
@@ -377,6 +427,8 @@ export default function ThreeCanvas({
 
     return () => {
       cancelAnimationFrame(raf);
+      texturesCancelled = true;
+      loadedTextures.forEach((t) => t.dispose());
       ro.disconnect();
       aborter.abort();
       controls.removeEventListener("change", reportZoom);
