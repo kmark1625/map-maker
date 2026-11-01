@@ -135,6 +135,12 @@ export default function ThreeCanvas({
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    if (readonly) {
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.06;
+    }
     renderer.domElement.style.display = "block";
     container.appendChild(renderer.domElement);
 
@@ -153,11 +159,19 @@ export default function ThreeCanvas({
     // Sample lighting test: "classic" is the original flat white rig, while
     // "vibrant" tries a warm key + cool fill + violet under-bounce to match
     // the saturated look of the 2.5D render. Toggled from the render view.
+    let sunDist = 1600;
     const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 0.45);
-    sun.position.set(0.8, 1.5, 1);
+    sun.position.set(0.8, 1.5, 1).normalize().multiplyScalar(sunDist);
+    if (readonly) {
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 1.6;
+    }
     scene.add(sun);
+    scene.add(sun.target);
     const fill = new THREE.DirectionalLight(0x9ecfff, 0);
     fill.position.set(-1, 0.5, -0.8);
     scene.add(fill);
@@ -171,7 +185,7 @@ export default function ThreeCanvas({
         hemi.intensity = 0.9;
         sun.color.set(0xffe3b3);
         sun.intensity = 1.4;
-        sun.position.set(1.0, 1.1, 0.7);
+        sun.position.set(1.0, 1.1, 0.7).normalize().multiplyScalar(sunDist);
         fill.intensity = 0.5;
         underglow.intensity = 0.35;
       } else {
@@ -180,7 +194,7 @@ export default function ThreeCanvas({
         hemi.intensity = 0.65;
         sun.color.set(0xffffff);
         sun.intensity = 0.45;
-        sun.position.set(0.8, 1.5, 1);
+        sun.position.set(0.8, 1.5, 1).normalize().multiplyScalar(sunDist);
         fill.intensity = 0;
         underglow.intensity = 0;
       }
@@ -217,6 +231,24 @@ export default function ThreeCanvas({
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const loadedTextures: THREE.Texture[] = [];
     let texturesCancelled = false;
+    if (readonly) {
+      const bgCanvas = document.createElement("canvas");
+      bgCanvas.width = 512;
+      bgCanvas.height = 512;
+      const bctx = bgCanvas.getContext("2d");
+      if (bctx) {
+        const grad = bctx.createRadialGradient(256, 230, 40, 256, 256, 360);
+        grad.addColorStop(0, "#2b3a4a");
+        grad.addColorStop(0.55, "#16202c");
+        grad.addColorStop(1, "#0c1118");
+        bctx.fillStyle = grad;
+        bctx.fillRect(0, 0, 512, 512);
+        const bgTex = new THREE.CanvasTexture(bgCanvas);
+        bgTex.colorSpace = THREE.SRGBColorSpace;
+        loadedTextures.push(bgTex);
+        scene.background = bgTex;
+      }
+    }
     for (const t of TERRAINS) {
       textureLoader.load(
         TILE_URLS[t.id],
@@ -297,6 +329,365 @@ export default function ThreeCanvas({
     scene.add(gridGroup);
     const islandGroup = new THREE.Group();
     scene.add(islandGroup);
+
+    // --- Diorama styling (readonly Render step only; PRD checklist) ---
+    // Deterministic per-cell hash so jitter is stable across rebuilds.
+    const cellRand = (x: number, y: number, salt = 0) => {
+      let h = (x * 374761393 + y * 668265263 + salt * 974711) >>> 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+    };
+    const dioramaGroup = new THREE.Group();
+    dioramaGroup.visible = readonly;
+    scene.add(dioramaGroup);
+    const std = (color: string, extra: object = {}) =>
+      new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0, flatShading: true, ...extra });
+    const dMats = {
+      trunk: std("#7a4a28"), leafDeep: std("#2f7a3d"), leafMid: std("#4caf50"), leafHi: std("#7ed957"),
+      cream: std("#f3e5cf"), roofA: std("#c65a32"), roofB: std("#d97a4a"), timber: std("#7a4a28"),
+      door: std("#4a2e18"), stonePost: std("#8a93a3"), snow: std("#ffffff"), rock: std("#7e9cb5"),
+      moss: std("#4a9e4f"), crystal: std("#9beaff", { emissive: "#37e0ff", emissiveIntensity: 1.1 }),
+      root: std("#6b5a4a"),
+    };
+    const snowTopMat = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+    const snowBoxMats = [
+      terrainSideMats.stone.right, terrainSideMats.stone.left, snowTopMat,
+      bottomMat, terrainSideMats.stone.right, terrainSideMats.stone.left,
+    ];
+    const dGeo = {
+      trunk: new THREE.CylinderGeometry(CUBE * 0.055, CUBE * 0.075, CUBE * 0.38, 6),
+      blob: new THREE.SphereGeometry(1, 7, 5),
+      wall: new THREE.BoxGeometry(CUBE * 0.56, CUBE * 0.38, CUBE * 0.5),
+      roof: new THREE.CylinderGeometry(CUBE * 0.36, CUBE * 0.36, CUBE * 0.7, 3, 1),
+      door: new THREE.BoxGeometry(CUBE * 0.13, CUBE * 0.22, CUBE * 0.03),
+      chimney: new THREE.BoxGeometry(CUBE * 0.09, CUBE * 0.2, CUBE * 0.09),
+      plank: new THREE.BoxGeometry(CUBE * 0.34, CUBE * 0.045, CUBE * 0.52),
+      post: new THREE.BoxGeometry(CUBE * 0.1, CUBE * 0.3, CUBE * 0.1),
+      tower: new THREE.CylinderGeometry(CUBE * 0.17, CUBE * 0.26, CUBE * 0.98, 8),
+      coneRoof: new THREE.ConeGeometry(CUBE * 0.3, CUBE * 0.34, 8),
+      blade: new THREE.BoxGeometry(CUBE * 0.1, CUBE * 0.58, CUBE * 0.02),
+      crystal: new THREE.ConeGeometry(CUBE * 0.085, CUBE * 0.52, 6),
+      rock: new THREE.DodecahedronGeometry(1, 0),
+      root: new THREE.ConeGeometry(CUBE * 0.11, CUBE * 1.4, 6),
+      vine: new THREE.BoxGeometry(CUBE * 0.035, 1, CUBE * 0.035),
+      snowSlab: new THREE.BoxGeometry(CUBE * 1.05, CUBE * 0.13, CUBE * 1.05),
+    };
+    // Animated waterfall sheet + soft mist sprite (canvas textures).
+    const fallCanvas = document.createElement("canvas");
+    fallCanvas.width = 64; fallCanvas.height = 256;
+    const fctx = fallCanvas.getContext("2d");
+    if (fctx) {
+      const g = fctx.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, "#ffffff"); g.addColorStop(0.5, "#bfeaff"); g.addColorStop(1, "#7fd4ff");
+      fctx.fillStyle = g; fctx.fillRect(0, 0, 64, 256);
+      fctx.globalAlpha = 0.5;
+      for (let i = 0; i < 26; i++) {
+        fctx.fillStyle = i % 2 ? "#ffffff" : "#5db8e8";
+        fctx.fillRect(cellRand(i, 7) * 60, cellRand(i, 9) * 200, 2 + cellRand(i, 3) * 3, 40 + cellRand(i, 5) * 90);
+      }
+    }
+    const fallTex = new THREE.CanvasTexture(fallCanvas);
+    fallTex.wrapS = THREE.RepeatWrapping; fallTex.wrapT = THREE.RepeatWrapping; fallTex.repeat.set(1, 2.5);
+    fallTex.colorSpace = THREE.SRGBColorSpace;
+    const streamTex = fallTex.clone();
+    streamTex.repeat.set(1, 1.4); streamTex.needsUpdate = true;
+    loadedTextures.push(fallTex, streamTex);
+    const fallMat = new THREE.MeshBasicMaterial({ map: fallTex, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
+    const streamMat = new THREE.MeshBasicMaterial({ map: streamTex, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+    const mistCanvas = document.createElement("canvas");
+    mistCanvas.width = 128; mistCanvas.height = 128;
+    const mctx = mistCanvas.getContext("2d");
+    if (mctx) {
+      const g = mctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+      g.addColorStop(0, "rgba(255,255,255,0.85)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      mctx.fillStyle = g; mctx.fillRect(0, 0, 128, 128);
+    }
+    const mistTex = new THREE.CanvasTexture(mistCanvas);
+    loadedTextures.push(mistTex);
+    const dAnim: {
+      blades: THREE.Object3D | null;
+      rocks: { mesh: THREE.Mesh; baseY: number; phase: number }[];
+      sparkles: THREE.Points | null;
+    } = { blades: null, rocks: [], sparkles: null };
+    const addMist = (parent: THREE.Object3D, x: number, y: number, z: number, scale: number, opacity: number) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, transparent: true, opacity, depthWrite: false }));
+      s.position.set(x, y, z); s.scale.set(scale, scale * 0.6, 1);
+      parent.add(s);
+    };
+    const shadowed = (m: THREE.Mesh) => { m.castShadow = true; m.receiveShadow = true; return m; };
+    const blobAt = (parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, r: number) => {
+      const b = shadowed(new THREE.Mesh(dGeo.blob, mat));
+      b.position.set(x, y, z); b.scale.set(r, r * 0.85, r);
+      parent.add(b);
+    };
+    const buildTree = (cell: CellCoord, n: number) => {
+      const p = cellCenter(cell, n);
+      const g = new THREE.Group();
+      const jx = (cellRand(cell.x, cell.y, 1) - 0.5) * CUBE * 0.25;
+      const jz = (cellRand(cell.x, cell.y, 2) - 0.5) * CUBE * 0.25;
+      const s = 0.85 + cellRand(cell.x, cell.y, 3) * 0.45;
+      g.position.set(p.x + jx, CUBE, p.z + jz);
+      g.scale.setScalar(s);
+      const trunk = shadowed(new THREE.Mesh(dGeo.trunk, dMats.trunk));
+      trunk.position.y = CUBE * 0.19;
+      g.add(trunk);
+      blobAt(g, dMats.leafDeep, 0, CUBE * 0.52, 0, CUBE * 0.3);
+      blobAt(g, dMats.leafMid, CUBE * 0.16, CUBE * 0.68, CUBE * 0.08, CUBE * 0.23);
+      blobAt(g, dMats.leafHi, -CUBE * 0.13, CUBE * 0.8, -CUBE * 0.06, CUBE * 0.18);
+      if (cellRand(cell.x, cell.y, 4) > 0.45) blobAt(g, dMats.leafMid, CUBE * 0.05, CUBE * 0.42, -CUBE * 0.2, CUBE * 0.17);
+      dioramaGroup.add(g);
+    };
+    const buildCottage = (cell: CellCoord, n: number, idx: number) => {
+      const p = cellCenter(cell, n);
+      const g = new THREE.Group();
+      g.position.set(p.x, CUBE, p.z);
+      g.rotation.y = Math.atan2(-p.x, -p.z) + (cellRand(cell.x, cell.y, 8) - 0.5) * 0.5;
+      g.scale.setScalar(0.9 + cellRand(cell.x, cell.y, 9) * 0.25);
+      const wall = shadowed(new THREE.Mesh(dGeo.wall, dMats.cream));
+      wall.position.y = CUBE * 0.19;
+      g.add(wall);
+      const roof = shadowed(new THREE.Mesh(dGeo.roof, idx % 2 ? dMats.roofB : dMats.roofA));
+      roof.rotateZ(Math.PI / 2); // prism axis -> X (ridge along X)
+      roof.rotateX(Math.PI); // flat face down, apex up
+      roof.position.y = CUBE * 0.5;
+      roof.scale.set(1, 0.78, 1);
+      g.add(roof);
+      const door = new THREE.Mesh(dGeo.door, dMats.door);
+      door.position.set(0, CUBE * 0.11, CUBE * 0.265);
+      g.add(door);
+      const chim = shadowed(new THREE.Mesh(dGeo.chimney, dMats.timber));
+      chim.position.set(CUBE * 0.16, CUBE * 0.58, -CUBE * 0.08);
+      g.add(chim);
+      dioramaGroup.add(g);
+    };
+    const buildWindmill = (cell: CellCoord, n: number) => {
+      const p = cellCenter(cell, n);
+      const g = new THREE.Group();
+      g.position.set(p.x, CUBE, p.z);
+      g.rotation.y = Math.atan2(-p.x, Math.max(1, -p.z + CUBE * 2));
+      const tower = shadowed(new THREE.Mesh(dGeo.tower, dMats.cream));
+      tower.position.y = CUBE * 0.49;
+      g.add(tower);
+      const roof = shadowed(new THREE.Mesh(dGeo.coneRoof, dMats.roofA));
+      roof.position.y = CUBE * 1.13;
+      g.add(roof);
+      const door = new THREE.Mesh(dGeo.door, dMats.door);
+      door.position.set(0, CUBE * 0.11, CUBE * 0.245);
+      g.add(door);
+      const hub = new THREE.Group();
+      hub.position.set(0, CUBE * 0.86, CUBE * 0.24);
+      for (let k = 0; k < 4; k++) {
+        const arm = new THREE.Group();
+        arm.rotation.z = (k * Math.PI) / 2 + 0.4;
+        const blade = shadowed(new THREE.Mesh(dGeo.blade, dMats.timber));
+        blade.position.y = CUBE * 0.34;
+        arm.add(blade);
+        hub.add(arm);
+      }
+      g.add(hub);
+      dAnim.blades = hub;
+      dioramaGroup.add(g);
+    };
+    const buildBridge = (cell: CellCoord, n: number, alongX: boolean) => {
+      const p = cellCenter(cell, n);
+      const g = new THREE.Group();
+      g.position.set(p.x, CUBE, p.z);
+      if (!alongX) g.rotation.y = Math.PI / 2;
+      for (let i = -2; i <= 2; i++) {
+        const plank = shadowed(new THREE.Mesh(dGeo.plank, dMats.timber));
+        plank.position.set(i * CUBE * 0.35, CUBE * 0.1 + Math.cos((i / 2) * (Math.PI / 2)) * CUBE * 0.09, 0);
+        plank.rotation.z = -Math.sin((i / 2) * (Math.PI / 2)) * 0.22;
+        g.add(plank);
+      }
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const post = shadowed(new THREE.Mesh(dGeo.post, dMats.stonePost));
+        post.position.set(sx * CUBE * 0.78, CUBE * 0.12, sz * CUBE * 0.24);
+        g.add(post);
+      }
+      dioramaGroup.add(g);
+    };
+    const rebuildDiorama = (cells: Record<string, TerrainId>, n: number) => {
+      dioramaGroup.clear();
+      dAnim.blades = null; dAnim.rocks = []; dAnim.sparkles = null;
+      if (!readonly) return;
+      const at = (x: number, y: number): TerrainId =>
+        x < 0 || y < 0 || x >= n || y >= n ? "grass" : terrainAt(cells, x, y);
+      const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+      // 1. Stepped snow peaks from stone components (plaza = water-adjacent).
+      const seen = new Set<string>();
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        if (at(x, y) !== "stone" || seen.has(`${x},${y}`)) continue;
+        const comp: CellCoord[] = [];
+        const queue = [{ x, y }];
+        seen.add(`${x},${y}`);
+        while (queue.length) {
+          const c = queue.pop() as CellCoord;
+          comp.push(c);
+          for (const [dx, dy] of DIRS) {
+            const nx = c.x + dx, ny = c.y + dy, k = `${nx},${ny}`;
+            if (!seen.has(k) && at(nx, ny) === "stone") { seen.add(k); queue.push({ x: nx, y: ny }); }
+          }
+        }
+        const plaza = comp.some((c) => DIRS.some(([dx, dy]) => at(c.x + dx, c.y + dy) === "water"));
+        if (plaza || comp.length < 3) continue;
+        const cx = comp.reduce((s, c) => s + c.x, 0) / comp.length;
+        const cy = comp.reduce((s, c) => s + c.y, 0) / comp.length;
+        const peak = comp.reduce((best, c) =>
+          Math.hypot(c.x - cx, c.y - cy) < Math.hypot(best.x - cx, best.y - cy) ? c : best);
+        for (const c of comp) {
+          const extra = Math.max(0, 3 - (Math.abs(c.x - peak.x) + Math.abs(c.y - peak.y)));
+          const p = cellCenter(c, n);
+          for (let h = 1; h <= extra; h++) {
+            const cube = shadowed(new THREE.Mesh(cubeGeo, h === extra && extra >= 2 ? snowBoxMats : terrainBoxMats.stone));
+            cube.position.set(p.x, CUBE / 2 + h * CUBE, p.z);
+            dioramaGroup.add(cube);
+          }
+          if (extra >= 2) {
+            const cap = shadowed(new THREE.Mesh(dGeo.snowSlab, dMats.snow));
+            cap.position.set(p.x, CUBE + extra * CUBE + CUBE * 0.05, p.z);
+            cap.rotation.y = cellRand(c.x, c.y, 6) * 0.3;
+            dioramaGroup.add(cap);
+          }
+        }
+        // Mountain stream down the peak's south face.
+        const pp = cellCenter(peak, n);
+        const stream = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.2, CUBE * 3.4), streamMat);
+        stream.position.set(pp.x, CUBE * 1.9, pp.z + CUBE * 0.56);
+        stream.rotation.x = 0.18;
+        dioramaGroup.add(stream);
+      }
+      // 2. Trees on forest, bushes on some grass.
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const t = at(x, y);
+        if (t === "forest") buildTree({ x, y }, n);
+        else if (t === "grass" && cellRand(x, y, 11) > 0.82) {
+          const p = cellCenter({ x, y }, n);
+          blobAt(dioramaGroup, dMats.leafMid, p.x + (cellRand(x, y, 12) - 0.5) * CUBE * 0.4, CUBE + CUBE * 0.1, p.z, CUBE * 0.13);
+        }
+      }
+      // Bridges: water cells flanked by stone on one side, land on the other.
+      const bridges: { cell: CellCoord; alongX: boolean }[] = [];
+      for (let y = 0; y < n && bridges.length < 2; y++) for (let x = 0; x < n && bridges.length < 2; x++) {
+        if (at(x, y) !== "water") continue;
+        const ew = (at(x - 1, y) === "stone" && at(x + 1, y) !== "water") || (at(x + 1, y) === "stone" && at(x - 1, y) !== "water");
+        const ns = (at(x, y - 1) === "stone" && at(x, y + 1) !== "water") || (at(x, y + 1) === "stone" && at(x, y - 1) !== "water");
+        if (!ew && !ns) continue;
+        if (bridges.some((b) => Math.abs(b.cell.x - x) + Math.abs(b.cell.y - y) < 3)) continue;
+        bridges.push({ cell: { x, y }, alongX: ew });
+      }
+      bridges.forEach((b) => buildBridge(b.cell, n, b.alongX));
+      const nearBridge = (c: CellCoord) => bridges.some((b) => Math.abs(b.cell.x - c.x) + Math.abs(b.cell.y - c.y) <= 1);
+      // Town: windmill on southern grass, cottages on grass near the lake.
+      const distToWater = (c: CellCoord) => {
+        let d = 99;
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+          if (at(x, y) === "water") d = Math.min(d, Math.abs(x - c.x) + Math.abs(y - c.y));
+        return d;
+      };
+      const grassCells: CellCoord[] = [];
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+        if (at(x, y) === "grass" && !nearBridge({ x, y })) grassCells.push({ x, y });
+      const placed: CellCoord[] = [];
+      const spaced = (c: CellCoord) => placed.every((o) => Math.max(Math.abs(o.x - c.x), Math.abs(o.y - c.y)) >= 2);
+      const south = grassCells.filter((c) => c.y > n / 2 && distToWater(c) >= 2)
+        .sort((a, b) => Math.abs(a.x - n / 2) + cellRand(a.x, a.y, 21) * 2 - (Math.abs(b.x - n / 2) + cellRand(b.x, b.y, 21) * 2));
+      if (south[0]) { buildWindmill(south[0], n); placed.push(south[0]); }
+      const cottageSpots = grassCells.filter((c) => distToWater(c) <= 3 && distToWater(c) >= 1)
+        .sort((a, b) => cellRand(a.x, a.y, 22) - cellRand(b.x, b.y, 22));
+      let cottageCount = 0;
+      for (const c of cottageSpots) {
+        if (cottageCount >= 6) break;
+        if (!spaced(c)) continue;
+        buildCottage(c, n, cottageCount++);
+        placed.push(c);
+      }
+      // 3. Two south-rim waterfalls with mist at the base.
+      const rimZ = (n / 2) * CUBE + 3;
+      for (const fx of [Math.floor(n * 0.28), Math.floor(n * 0.72)]) {
+        const p = cellCenter({ x: fx, y: n - 1 }, n);
+        const fall = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.72, CUBE * 6.2), fallMat);
+        fall.position.set(p.x, CUBE - CUBE * 2.9, rimZ);
+        dioramaGroup.add(fall);
+        const lip = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.72, CUBE * 0.9),
+          new THREE.MeshBasicMaterial({ color: "#7fd4ff", transparent: true, opacity: 0.85 }));
+        lip.rotation.x = -Math.PI / 2;
+        lip.position.set(p.x, CUBE + 1.5, p.z + CUBE * 0.2);
+        dioramaGroup.add(lip);
+        addMist(dioramaGroup, p.x, -CUBE * 5.4, rimZ + CUBE * 0.5, CUBE * 2.6, 0.4);
+        addMist(dioramaGroup, p.x + CUBE * 0.5, -CUBE * 4.6, rimZ + CUBE * 0.4, CUBE * 1.8, 0.3);
+      }
+      // 4. Cliff dressing: moss + vines on the upper ring, corner crystals.
+      const ox = Math.floor((n - ISLAND_W) / 2);
+      const oy = Math.floor((n - ISLAND_D) / 2);
+      for (let y = 0; y < ISLAND_D; y++) for (let x = 0; x < ISLAND_W; x++) {
+        if (!isIslandSolid(x, y, 0)) continue;
+        const edge = !isIslandSolid(x - 1, y, 0) || !isIslandSolid(x + 1, y, 0) || !isIslandSolid(x, y - 1, 0) || !isIslandSolid(x, y + 1, 0)
+          || x === 0 || y === 0 || x === ISLAND_W - 1 || y === ISLAND_D - 1;
+        if (!edge || cellRand(x, y, 31) < 0.62) continue;
+        const gx = x + ox, gy = y + oy;
+        if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+        const p = cellCenter({ x: gx, y: gy }, n);
+        const southFace = gy === n - 1 || y === ISLAND_D - 1;
+        const mx = p.x + (cellRand(x, y, 32) - 0.5) * CUBE * 0.4;
+        const mz = southFace ? p.z + CUBE * 0.52 : p.z + (cellRand(x, y, 33) - 0.5) * CUBE * 0.4;
+        blobAt(dioramaGroup, dMats.moss, mx, -CUBE * (0.3 + cellRand(x, y, 34) * 1.1), mz, CUBE * (0.14 + cellRand(x, y, 35) * 0.12));
+        if (cellRand(x, y, 36) > 0.5) {
+          const len = CUBE * (0.6 + cellRand(x, y, 37) * 0.9);
+          const vine = new THREE.Mesh(dGeo.vine, dMats.moss);
+          vine.scale.y = len;
+          vine.position.set(mx, -CUBE * 0.4 - len / 2, mz + (southFace ? 2 : 0));
+          dioramaGroup.add(vine);
+        }
+      }
+      for (const [cx, cy] of [[0, 0], [n - 1, 0], [0, n - 1], [n - 1, n - 1]] as const) {
+        const p = cellCenter({ x: cx, y: cy }, n);
+        for (let k = 0; k < 3; k++) {
+          const cry = new THREE.Mesh(dGeo.crystal, dMats.crystal);
+          cry.position.set(p.x + (cellRand(cx, k, 41) - 0.5) * CUBE * 0.5, CUBE + CUBE * 0.16, p.z + (cellRand(cy, k, 42) - 0.5) * CUBE * 0.5);
+          cry.rotation.set((cellRand(cx, k, 43) - 0.5) * 0.7, 0, (cellRand(cy, k, 44) - 0.5) * 0.7);
+          cry.scale.setScalar(0.7 + cellRand(cx, k, 45) * 0.7);
+          dioramaGroup.add(cry);
+        }
+      }
+      // 5. Roots under the keel, under-mist, floating rocks, sparkles.
+      for (let i = 0; i < 6; i++) {
+        const root = new THREE.Mesh(dGeo.root, dMats.root);
+        const a = (i / 6) * Math.PI * 2;
+        root.position.set(Math.cos(a) * CUBE * (0.6 + cellRand(i, 1, 51)), -ISLAND_H * CUBE - CUBE * 0.35, Math.sin(a) * CUBE * (0.6 + cellRand(i, 2, 52)));
+        root.rotation.set(Math.PI + (cellRand(i, 3, 53) - 0.5) * 0.5, 0, (cellRand(i, 4, 54) - 0.5) * 0.5);
+        root.scale.y = 0.7 + cellRand(i, 5, 55) * 0.8;
+        dioramaGroup.add(root);
+      }
+      addMist(dioramaGroup, 0, -ISLAND_H * CUBE * 0.82, CUBE * 1.5, CUBE * 7, 0.14);
+      addMist(dioramaGroup, -CUBE * 2, -ISLAND_H * CUBE * 0.6, -CUBE, CUBE * 5, 0.1);
+      for (let i = 0; i < 9; i++) {
+        const rock = shadowed(new THREE.Mesh(dGeo.rock, dMats.rock));
+        const a = cellRand(i, 1, 61) * Math.PI * 2;
+        const r = CUBE * (n / 2 + 0.8 + cellRand(i, 2, 62) * 2.6);
+        rock.position.set(Math.cos(a) * r, -CUBE * 3.5 + cellRand(i, 3, 63) * CUBE * 4.5, Math.sin(a) * r);
+        rock.rotation.set(cellRand(i, 4, 64) * 3, cellRand(i, 5, 65) * 3, 0);
+        rock.scale.setScalar(CUBE * (0.12 + cellRand(i, 6, 66) * 0.3));
+        dioramaGroup.add(rock);
+        dAnim.rocks.push({ mesh: rock, baseY: rock.position.y, phase: cellRand(i, 7, 67) * Math.PI * 2 });
+      }
+      const sparkCount = 130;
+      const pos = new Float32Array(sparkCount * 3);
+      for (let i = 0; i < sparkCount; i++) {
+        const a = cellRand(i, 1, 71) * Math.PI * 2;
+        const r = CUBE * (n / 2 - 1 + cellRand(i, 2, 72) * 4);
+        pos[i * 3] = Math.cos(a) * r;
+        pos[i * 3 + 1] = -ISLAND_H * CUBE * 0.7 + cellRand(i, 3, 73) * CUBE * (ISLAND_H * 0.85);
+        pos[i * 3 + 2] = Math.sin(a) * r;
+      }
+      const sparkGeo = new THREE.BufferGeometry();
+      sparkGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const sparkles = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
+        color: "#aaeeff", size: 7, sizeAttenuation: true, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      dioramaGroup.add(sparkles);
+      dAnim.sparkles = sparkles;
+    };
     let cellMeshes: THREE.Mesh[] = [];
 
     // Wandering elf on the rendered map: a walk-cycle billboard that
@@ -607,7 +998,7 @@ export default function ThreeCanvas({
 
     const fit = () => {
       const footprint = Math.hypot(gridN * CUBE, gridN * CUBE) / 2;
-      const top = CUBE;
+      const top = readonly ? CUBE * 4.2 : CUBE; // peaks + windmill headroom
       const bottom = readonly ? -ISLAND_H * CUBE : 0;
       const radius =
         Math.hypot(footprint, readonly ? (top - bottom) / 2 : 0) + CUBE * 0.75;
@@ -663,17 +1054,29 @@ export default function ThreeCanvas({
       gridGroup.clear();
       cellMeshes = [];
       const state = useGridStore.getState();
+      const sinkFor = (t: TerrainId) =>
+        readonly ? (t === "water" ? CUBE * 0.18 : t === "sand" ? CUBE * 0.06 : 0) : 0;
       for (let y = 0; y < nextN; y++) {
         for (let x = 0; x < nextN; x++) {
-          const mesh = new THREE.Mesh(
-            cubeGeo,
-            terrainBoxMats[terrainAt(state.cells, x, y)],
-          );
+          const terrain = terrainAt(state.cells, x, y);
+          const mesh = new THREE.Mesh(cubeGeo, terrainBoxMats[terrain]);
           mesh.position.copy(cellCenter({ x, y }, nextN));
+          mesh.position.y -= sinkFor(terrain);
+          mesh.castShadow = readonly;
+          mesh.receiveShadow = readonly;
           mesh.userData.cell = { x, y };
           gridGroup.add(mesh);
           cellMeshes.push(mesh);
         }
+      }
+      if (readonly) {
+        sunDist = nextN * CUBE * 2.2;
+        sun.position.setLength(sunDist);
+        const sc = sun.shadow.camera;
+        const extent = nextN * CUBE * 0.95;
+        sc.left = -extent; sc.right = extent; sc.top = extent; sc.bottom = -extent;
+        sc.near = CUBE; sc.far = sunDist * 2.5;
+        sc.updateProjectionMatrix();
       }
       const slabW = nextN * CUBE + 32;
       slabTop.scale.set(slabW, 1, slabW);
@@ -696,11 +1099,13 @@ export default function ThreeCanvas({
               );
               const p = cellCenter({ x: gx, y: gy }, nextN);
               mesh.position.set(p.x, -(z * CUBE + CUBE / 2), p.z);
+              mesh.receiveShadow = true;
               islandGroup.add(mesh);
             }
           }
         }
       }
+      rebuildDiorama(state.cells, nextN);
       refreshOverlays();
       placeElf();
       fit();
@@ -709,8 +1114,14 @@ export default function ThreeCanvas({
     const recolor = (nextCells: Record<string, TerrainId>) => {
       for (const mesh of cellMeshes) {
         const c = mesh.userData.cell as CellCoord;
-        mesh.material = terrainBoxMats[terrainAt(nextCells, c.x, c.y)];
+        const terrain = terrainAt(nextCells, c.x, c.y);
+        mesh.material = terrainBoxMats[terrain];
+        if (readonly) {
+          const sink = terrain === "water" ? CUBE * 0.18 : terrain === "sand" ? CUBE * 0.06 : 0;
+          mesh.position.y = CUBE / 2 - sink;
+        }
       }
+      if (readonly) rebuildDiorama(nextCells, gridN);
     };
 
     const raycaster = new THREE.Raycaster();
@@ -793,6 +1204,17 @@ export default function ThreeCanvas({
       }
       updateWander(now, dt);
       updateTrails(now);
+      if (readonly) {
+        if (dAnim.blades) dAnim.blades.rotation.z -= dt * 0.0016;
+        fallTex.offset.y = (fallTex.offset.y - dt * 0.0011) % 1;
+        streamTex.offset.y = (streamTex.offset.y - dt * 0.0016) % 1;
+        for (const r of dAnim.rocks) {
+          r.mesh.position.y = r.baseY + Math.sin(now * 0.0007 + r.phase) * CUBE * 0.16;
+          r.mesh.rotation.y += dt * 0.00012;
+        }
+        if (dAnim.sparkles) dAnim.sparkles.rotation.y = now * 0.00002;
+        (dMats.crystal as THREE.MeshStandardMaterial).emissiveIntensity = 1.1 + Math.sin(now * 0.002) * 0.35;
+      }
       controls.update();
       renderer.render(scene, camera);
     };
@@ -825,7 +1247,12 @@ export default function ThreeCanvas({
       aborter.abort();
       controls.dispose();
       scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+        if (
+          obj instanceof THREE.Mesh ||
+          obj instanceof THREE.LineSegments ||
+          obj instanceof THREE.Points ||
+          obj instanceof THREE.Sprite
+        ) {
           obj.geometry.dispose();
           const mats = Array.isArray(obj.material)
             ? obj.material
