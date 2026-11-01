@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { gridBounds, type CellCoord } from "@/lib/iso";
+import conceptMap from "@/data/concept-map.json";
 
 export type ToolId = "select" | "pan" | "paint" | "erase";
 export type TerrainId = "grass" | "water" | "sand" | "stone" | "forest";
@@ -18,25 +19,25 @@ export const TERRAINS: Terrain[] = [
     id: "grass",
     label: "Grass",
     shortcut: "1",
-    top: "#a3c585",
-    left: "#718f57",
-    right: "#8aab6e",
+    top: "#8fd16a",
+    left: "#5e9c46",
+    right: "#74b958",
   },
   {
     id: "water",
     label: "Water",
     shortcut: "2",
-    top: "#7fb8d6",
-    left: "#4f7f9c",
-    right: "#669cb8",
+    top: "#40a6e6",
+    left: "#2b6e9c",
+    right: "#378bb8",
   },
   {
     id: "sand",
     label: "Sand",
     shortcut: "3",
-    top: "#e3cd91",
-    left: "#b39c5e",
-    right: "#cdb877",
+    top: "#e7d8a8",
+    left: "#b3a06b",
+    right: "#cfbd85",
   },
   {
     id: "stone",
@@ -90,21 +91,32 @@ export function cellKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
+// Hand-authored concept layout (see concept-map.json + floating_island.jpg):
+// sand rim, northern stone peaks, central lake with a stone plaza core,
+// forest bands. Other sizes nearest-neighbor sample the 12x12 template.
+const CONCEPT_ROWS: string[] = conceptMap.rows;
+const CONCEPT_N = CONCEPT_ROWS.length;
+const CONCEPT_LEGEND: Record<string, TerrainId> = Object.fromEntries(
+  Object.entries(conceptMap.legend as Record<string, string>).map(
+    ([key, value]) => [
+      key,
+      (TERRAINS.some((t) => t.id === value)
+        ? value
+        : DEFAULT_TERRAIN) as TerrainId,
+    ],
+  ),
+);
+
 function buildDemoCells(n: number): Record<string, TerrainId> {
   const cells: Record<string, TerrainId> = {};
-  const c = (n - 1) / 2;
-  const maxD = Math.hypot(c, c) || 1;
   for (let y = 0; y < n; y++) {
+    const row =
+      CONCEPT_ROWS[Math.min(CONCEPT_N - 1, Math.floor((y * CONCEPT_N) / n))];
     for (let x = 0; x < n; x++) {
-      const d = Math.hypot(x - c, y - c) / maxD;
-      const hash = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-      const jitter = ((hash % 100) / 100 - 0.5) * 0.18;
-      const t = d + jitter;
-      let terrain: TerrainId = "grass";
-      if (t > 0.78) terrain = "water";
-      else if (t > 0.66) terrain = "sand";
-      else if (t < 0.45 && hash % 7 < 2) terrain = "forest";
-      else if (t < 0.3 && hash % 11 < 2) terrain = "stone";
+      const terrain =
+        CONCEPT_LEGEND[
+          row[Math.min(CONCEPT_N - 1, Math.floor((x * CONCEPT_N) / n))]
+        ] ?? DEFAULT_TERRAIN;
       if (terrain !== DEFAULT_TERRAIN) cells[cellKey(x, y)] = terrain;
     }
   }

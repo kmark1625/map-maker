@@ -1,0 +1,23 @@
+{
+  "legend": {
+    "g": "grass",
+    "w": "water",
+    "s": "sand",
+    "t": "stone",
+    "f": "forest"
+  },
+  "rows": [
+    "ssssssssssss",
+    "sgffgttgftts",
+    "sgfttttfttfs",
+    "sggttggttggs",
+    "sgfgwwwwgfgs",
+    "sggswttwsggs",
+    "sggswttwsggs",
+    "sgfgwwwwgfgs",
+    "sgggssssgggs",
+    "sgfggssggfgs",
+    "sggffggffggs",
+    "ssssssssssss"
+  ]
+}

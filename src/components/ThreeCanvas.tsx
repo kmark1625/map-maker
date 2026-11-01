@@ -11,12 +11,15 @@ import {
   type TerrainId,
 } from "@/stores/grid-store";
 import { TILE_H, type CellCoord } from "@/lib/iso";
-import grassTile from "@/app/assets/images/tiles/grass.webp";
-import waterTile from "@/app/assets/images/tiles/water.webp";
-import sandTile from "@/app/assets/images/tiles/sand.webp";
+import grassTile from "@/app/assets/images/tiles/grass_flat.webp";
+import waterTile from "@/app/assets/images/tiles/water_flat.webp";
+import sandTile from "@/app/assets/images/tiles/sand_flat.webp";
 import stoneTile from "@/app/assets/images/tiles/stone.webp";
 import forestTile from "@/app/assets/images/tiles/forest.webp";
 import sideTile from "@/app/assets/images/side_tiles/side_icy_mountain.webp";
+import cliffLipTile from "@/app/assets/images/tiles/cliff_with_grass_lip.webp";
+import bareRockTile from "@/app/assets/images/tiles/bare_cliff_rock.webp";
+import deepRockTile from "@/app/assets/images/tiles/deep_underbelly_rock.webp";
 import {
   ISLAND_D,
   ISLAND_H,
@@ -63,9 +66,21 @@ const TILE_URLS: Record<TerrainId, string> = {
   forest: forestTile.src,
 };
 
-// Default side texture shared by every terrain's cube sides (and the island
-// rock below): one cliff face per cube face. First version — tuning follows.
-const SIDE_URL = sideTile.src;
+// Surface cubes wear the grass-lipped cliff on their sides. The island
+// column below bands by depth: bare blue rock up top, icy strata mid,
+// dark underbelly at the keel.
+const SURFACE_SIDE_URL = cliffLipTile.src;
+const ROCK_SIDE_URL = bareRockTile.src;
+const ICE_SIDE_URL = sideTile.src;
+const DEEP_SIDE_URL = deepRockTile.src;
+// z = 0 is the cap under the terrain, increasing downward (ISLAND_H = 16).
+const ROCK_MAX_Z = 5;
+const ICE_MAX_Z = 9;
+function islandSideBand(z: number): number {
+  if (z <= ROCK_MAX_Z) return 0;
+  if (z <= ICE_MAX_Z) return 1;
+  return 2;
+}
 
 const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
@@ -186,48 +201,61 @@ export default function ThreeCanvas({
       );
     }
 
-    // Default side texture, shared by every terrain's cube sides and the
-    // island rock faces. Sides keep their flat terrain colors until it
-    // arrives, then show the texture at full color like the tops do.
-    textureLoader.load(
-      SIDE_URL,
-      (tex) => {
-        if (texturesCancelled) {
-          tex.dispose();
-          return;
-        }
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.anisotropy = Math.min(8, maxAniso);
-        loadedTextures.push(tex);
-        for (const t of TERRAINS) {
-          for (const mat of [
-            terrainSideMats[t.id].left,
-            terrainSideMats[t.id].right,
-          ]) {
+    const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
+    // Island column materials: one side texture per depth band (top and
+    // bottom share the cap color). Bands follow islandSideBand below.
+    const islandMat = new THREE.MeshLambertMaterial({ color: "#7e9cb5" });
+    const islandSideMats = [
+      new THREE.MeshLambertMaterial({ color: "#7fc4e4" }),
+      new THREE.MeshLambertMaterial({ color: "#ffffff" }),
+      new THREE.MeshLambertMaterial({ color: "#5b4a8a" }),
+    ];
+    // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
+    const islandBoxMatsByBand = islandSideMats.map((side) => [
+      side,
+      side,
+      islandMat,
+      islandMat,
+      side,
+      side,
+    ]);
+
+    // Side textures arrive asynchronously; each material keeps its flat
+    // fallback color until its texture lands, then shows it at full color.
+    const applySideTexture = (
+      url: string,
+      targets: THREE.MeshLambertMaterial[],
+    ) => {
+      textureLoader.load(
+        url,
+        (tex) => {
+          if (texturesCancelled) {
+            tex.dispose();
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = Math.min(8, maxAniso);
+          loadedTextures.push(tex);
+          for (const mat of targets) {
             mat.map = tex;
             mat.color.set("#ffffff");
             mat.needsUpdate = true;
           }
-        }
-        islandSideMat.map = tex;
-        islandSideMat.needsUpdate = true;
-      },
-      undefined,
-      () => {},
+        },
+        undefined,
+        () => {},
+      );
+    };
+    applySideTexture(
+      SURFACE_SIDE_URL,
+      TERRAINS.flatMap((t) => [
+        terrainSideMats[t.id].left,
+        terrainSideMats[t.id].right,
+      ]),
     );
-
-    const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
-    const islandMat = new THREE.MeshLambertMaterial({ color: "#8d8781" });
-    const islandSideMat = new THREE.MeshLambertMaterial({ color: "#ffffff" });
-    // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
-    const islandBoxMats = [
-      islandSideMat,
-      islandSideMat,
-      islandMat,
-      islandMat,
-      islandSideMat,
-      islandSideMat,
-    ];
+    applySideTexture(ROCK_SIDE_URL, [islandSideMats[0]]);
+    applySideTexture(ICE_SIDE_URL, [islandSideMats[1]]);
+    applySideTexture(DEEP_SIDE_URL, [islandSideMats[2]]);
     const gridGroup = new THREE.Group();
     scene.add(gridGroup);
     const islandGroup = new THREE.Group();
@@ -633,7 +661,10 @@ export default function ThreeCanvas({
               const gx = x + ox;
               const gy = y + oy;
               if (gx < 0 || gy < 0 || gx >= nextN || gy >= nextN) continue;
-              const mesh = new THREE.Mesh(cubeGeo, islandBoxMats);
+              const mesh = new THREE.Mesh(
+                cubeGeo,
+                islandBoxMatsByBand[islandSideBand(z)],
+              );
               const p = cellCenter({ x: gx, y: gy }, nextN);
               mesh.position.set(p.x, -(z * CUBE + CUBE / 2), p.z);
               islandGroup.add(mesh);
