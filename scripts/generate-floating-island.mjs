@@ -10,7 +10,7 @@
 // default 12x12 grid.
 //
 // Shape: iceberg-style floating island matching
-// src/app/assets/images/concept_art/floating_island.jpg — a full rounded-square
+// .muse-session/concept_art/floating_island_1.jpg — a full rounded-square
 // plateau with sheer upper cliffs, an accelerating taper through the mid
 // strata, and a narrow jagged keel, with seeded value noise so regeneration
 // is deterministic.
