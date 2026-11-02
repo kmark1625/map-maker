@@ -39,6 +39,7 @@ const CUBE = TILE_H; // full h x h x h cubes
 const BG = "#292524"; // stone-800, matches the 2D canvas
 const GROUND = "#1c1917"; // stone-900
 const CLICK_SLOP_PX = 6;
+const RENDER_ELEVATION_DEG = 20; // readonly camera angle above the ground plane
 // Wandering elf sketch on the rendered map: random-walk the grid with a
 // walk-cycle billboard, camera-relative 8-direction facing, and fading
 // element-tinted trail decals on visited tiles.
@@ -1161,8 +1162,11 @@ export default function ThreeCanvas({
       const vFov = THREE.MathUtils.degToRad(camera.fov);
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
       const dist = radius / Math.sin(Math.min(vFov, hFov) / 2);
-      // island_2 is a high, near-top-down view; editor keeps classic iso.
-      const polar = readonly ? 0.72 : Math.acos(1 / Math.sqrt(3));
+      // Polar is measured from vertical, so 20deg of elevation is a
+      // 70deg polar angle. The editor keeps classic isometric framing.
+      const polar = readonly
+        ? THREE.MathUtils.degToRad(90 - RENDER_ELEVATION_DEG)
+        : Math.acos(1 / Math.sqrt(3));
       const azim = Math.PI / 4;
       const dir = new THREE.Vector3(
         Math.sin(polar) * Math.sin(azim),

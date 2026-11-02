@@ -2,7 +2,7 @@
 // tool/functionality. Painting grass covers what erase did, and the
 // grid is fit-scaled internally via fitGrid (viewport.zoom is not a
 // user control). The 3D map render (ThreeCanvas) has rotation and
-// zoom disabled too; its camera stays at the fitted isometric angle.
+// zoom disabled too; its render camera stays at a fixed 30-degree elevation.
 // Run with: npm test
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -85,5 +85,17 @@ describe("3D map render controls", () => {
     const three = read("src", "components", "ThreeCanvas.tsx");
     assert.ok(three.includes("Fit grid to view"), "ThreeCanvas lost its Fit button");
     assert.ok(three.includes("OrbitControls"), "ThreeCanvas lost OrbitControls");
+  });
+
+  it("places only the render camera 20 degrees above horizontal", () => {
+    const three = read("src", "components", "ThreeCanvas.tsx");
+    const elevation = three.match(/const RENDER_ELEVATION_DEG = ([\d.]+);/);
+    assert.ok(elevation, "ThreeCanvas lost its render elevation setting");
+    assert.equal(Number(elevation[1]), 20);
+    assert.match(
+      three,
+      /const polar = readonly\s+\? THREE\.MathUtils\.degToRad\(90 - RENDER_ELEVATION_DEG\)\s+: Math\.acos\(1 \/ Math\.sqrt\(3\)\);/,
+      "the 20-degree elevation must apply only to the readonly render camera",
+    );
   });
 });
