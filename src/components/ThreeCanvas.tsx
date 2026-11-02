@@ -88,7 +88,6 @@ const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
   pan: "cursor-grab",
   paint: "cursor-crosshair",
-  erase: "cursor-crosshair",
 };
 
 function cellCenter(cell: CellCoord, n: number): THREE.Vector3 {
@@ -106,7 +105,6 @@ interface ViewApi {
   recolor: (cells: Record<string, TerrainId>) => void;
   refreshOverlays: () => void;
   fit: () => void;
-  dolly: (factor: number) => void;
   setWander: (on: boolean) => void;
   setLighting: (preset: LightingPreset) => void;
 }
@@ -118,7 +116,6 @@ export default function ThreeCanvas({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ViewApi | null>(null);
-  const [zoomPct, setZoomPct] = useState(100);
   const [wander, setWanderState] = useState(readonly);
   const [lighting, setLightingState] = useState<LightingPreset>("vibrant");
 
@@ -146,6 +143,9 @@ export default function ThreeCanvas({
 
     const camera = new THREE.PerspectiveCamera(45, 1, 1, 100000);
     const controls = new OrbitControls(camera, renderer.domElement);
+    // Fixed isometric camera: no orbiting or zooming; Fit restores the view.
+    controls.enableRotate = false;
+    controls.enableZoom = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = readonly ? Math.PI * 0.8 : Math.PI * 0.495;
@@ -596,7 +596,6 @@ export default function ThreeCanvas({
     scene.add(hoverBox);
 
     let gridN = useGridStore.getState().n;
-    let fitDist = 1000;
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -604,11 +603,6 @@ export default function ThreeCanvas({
       camera.aspect = rect.width / rect.height;
       camera.updateProjectionMatrix();
       renderer.setSize(rect.width, rect.height);
-    };
-
-    const reportZoom = () => {
-      const d = camera.position.distanceTo(controls.target);
-      if (d > 0) setZoomPct(Math.round((fitDist / d) * 100));
     };
 
     const fit = () => {
@@ -620,7 +614,6 @@ export default function ThreeCanvas({
       const vFov = THREE.MathUtils.degToRad(camera.fov);
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
       const dist = radius / Math.sin(Math.min(vFov, hFov) / 2);
-      fitDist = dist;
       const polar = Math.acos(1 / Math.sqrt(3)); // ~54.7deg classic iso tilt
       const azim = Math.PI / 4;
       const dir = new THREE.Vector3(
@@ -641,7 +634,6 @@ export default function ThreeCanvas({
       controls.minDistance = dist * 0.15;
       controls.maxDistance = dist * 3;
       controls.update();
-      reportZoom();
     };
 
     const refreshOverlays = () => {
@@ -721,19 +713,6 @@ export default function ThreeCanvas({
       }
     };
 
-    const dolly = (factor: number) => {
-      const off = camera.position.clone().sub(controls.target);
-      off.setLength(
-        THREE.MathUtils.clamp(
-          off.length() * factor,
-          controls.minDistance,
-          controls.maxDistance,
-        ),
-      );
-      camera.position.copy(controls.target).add(off);
-      controls.update();
-    };
-
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const pick = (e: PointerEvent): CellCoord | null => {
@@ -768,7 +747,7 @@ export default function ThreeCanvas({
         if (
           Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_SLOP_PX
         ) {
-          return; // was an orbit drag, not a click
+          return; // was a drag, not a click
         }
         if (!readonly) {
           const cell = pick(e);
@@ -780,13 +759,8 @@ export default function ThreeCanvas({
               st.paintCell(cell.x, cell.y);
               st.setSelected(cell);
             }
-          } else if (st.tool === "erase") {
-            if (cell) {
-              st.eraseCell(cell.x, cell.y);
-              st.setSelected(cell);
-            }
           }
-          // pan: orbit controls own the drag; click does nothing
+          // pan: controls own the drag; click does nothing
         }
       },
       { signal },
@@ -806,8 +780,6 @@ export default function ThreeCanvas({
       },
       { signal },
     );
-    controls.addEventListener("change", reportZoom);
-
     let raf = 0;
     let lastNow = performance.now();
     const loop = () => {
@@ -830,7 +802,6 @@ export default function ThreeCanvas({
       recolor,
       refreshOverlays,
       fit,
-      dolly,
       setWander,
       setLighting,
     };
@@ -852,7 +823,6 @@ export default function ThreeCanvas({
       if (elfSprite) (elfSprite.material as THREE.Material).dispose();
       ro.disconnect();
       aborter.abort();
-      controls.removeEventListener("change", reportZoom);
       controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
@@ -890,13 +860,10 @@ export default function ThreeCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${readonly ? "cursor-grab" : TOOL_CURSORS[tool]}`}
+      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${readonly ? "cursor-default" : TOOL_CURSORS[tool]}`}
     >
       {readonly ? (
         <div className="absolute top-3 left-3 flex items-center gap-2">
-          <div className="pointer-events-none rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
-            Drag to orbit · Scroll to zoom
-          </div>
           <button
             type="button"
             title={wander ? "Pause the wandering elf" : "Let the elf wander"}
@@ -940,30 +907,11 @@ export default function ThreeCanvas({
       ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">
           <span className="font-semibold text-white">{toolMeta.label}</span> —{" "}
-          {toolMeta.hint} · Drag to orbit
+          {toolMeta.hint}
         </div>
       ) : null}
 
       <div className="absolute right-4 bottom-4 flex items-center gap-1 rounded-md border border-stone-600 bg-stone-900/90 px-1.5 py-1 shadow-sm">
-        <button
-          type="button"
-          title="Zoom out"
-          onClick={() => apiRef.current?.dolly(1.25)}
-          className="rounded px-2 py-0.5 text-sm font-semibold text-stone-200 hover:bg-stone-700"
-        >
-          −
-        </button>
-        <span className="w-12 text-center text-xs tabular-nums text-stone-400">
-          {zoomPct}%
-        </span>
-        <button
-          type="button"
-          title="Zoom in"
-          onClick={() => apiRef.current?.dolly(1 / 1.25)}
-          className="rounded px-2 py-0.5 text-sm font-semibold text-stone-200 hover:bg-stone-700"
-        >
-          +
-        </button>
         <button
           type="button"
           title="Fit grid to view"

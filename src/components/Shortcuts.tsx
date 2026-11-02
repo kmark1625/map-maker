@@ -7,7 +7,6 @@ const KEY_TO_TOOL: Record<string, ToolId> = {
   v: "select",
   h: "pan",
   p: "paint",
-  e: "erase",
 };
 
 export default function Shortcuts() {
@@ -26,12 +25,6 @@ export default function Shortcuts() {
       const state = useGridStore.getState();
       if (e.key === "Escape") {
         state.setSelected(null);
-        return;
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (state.selected) {
-          state.eraseCell(state.selected.x, state.selected.y);
-        }
         return;
       }
       if (e.key.toLowerCase() === "f") {

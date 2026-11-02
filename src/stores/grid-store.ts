@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { gridBounds, type CellCoord } from "@/lib/iso";
 import conceptMap from "@/data/concept-map.json";
 
-export type ToolId = "select" | "pan" | "paint" | "erase";
+export type ToolId = "select" | "pan" | "paint";
 export type TerrainId = "grass" | "water" | "sand" | "stone" | "forest";
 
 export interface Terrain {
@@ -75,7 +75,6 @@ export const TOOLS: ReadonlyArray<{
   { id: "select", label: "Select", shortcut: "V", hint: "Click a cell to select it" },
   { id: "pan", label: "Pan", shortcut: "H", hint: "Drag to pan the view" },
   { id: "paint", label: "Paint", shortcut: "P", hint: "Click or drag to paint terrain" },
-  { id: "erase", label: "Erase", shortcut: "E", hint: "Click or drag to reset cells to grass" },
 ];
 
 export interface Viewport {
@@ -137,11 +136,9 @@ interface GridState {
   setActiveTerrain: (terrain: TerrainId) => void;
   setN: (n: number) => void;
   paintCell: (x: number, y: number, terrain?: TerrainId) => void;
-  eraseCell: (x: number, y: number) => void;
   setSelected: (cell: CellCoord | null) => void;
   setHover: (cell: CellCoord | null) => void;
   setViewport: (patch: Partial<Viewport>) => void;
-  zoomAt: (factor: number, anchor: { sx: number; sy: number }) => void;
   fitGrid: (width: number, height: number) => void;
   requestFit: () => void;
   resetGrid: () => void;
@@ -195,14 +192,6 @@ export const useGridStore = create<GridState>()((set) => ({
       else cells[key] = t;
       return { cells };
     }),
-  eraseCell: (x, y) =>
-    set((state) => {
-      const key = cellKey(x, y);
-      if (!(key in state.cells)) return state;
-      const cells = { ...state.cells };
-      delete cells[key];
-      return { cells };
-    }),
   setSelected: (cell) =>
     set((state) =>
       sameCell(state.selected, cell) ? state : { selected: cell },
@@ -212,21 +201,6 @@ export const useGridStore = create<GridState>()((set) => ({
 
   setViewport: (patch) =>
     set((state) => ({ viewport: { ...state.viewport, ...patch } })),
-  zoomAt: (factor, anchor) =>
-    set((state) => {
-      const zoom = Math.min(
-        MAX_ZOOM,
-        Math.max(MIN_ZOOM, state.viewport.zoom * factor),
-      );
-      const k = zoom / state.viewport.zoom;
-      return {
-        viewport: {
-          zoom,
-          x: anchor.sx - (anchor.sx - state.viewport.x) * k,
-          y: anchor.sy - (anchor.sy - state.viewport.y) * k,
-        },
-      };
-    }),
   fitGrid: (width, height) =>
     set((state) => {
       const bounds = gridBounds(state.n);

@@ -18,12 +18,6 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
       <path d="M12 5l3 3" />
     </>
   ),
-  erase: (
-    <>
-      <path d="M4 6h12M9 3.5h2M6.5 6l.7 11h5.6l.7-11" />
-      <path d="M8.7 9.5v4.5M11.3 9.5v4.5" />
-    </>
-  ),
 };
 
 export default function Toolbar() {

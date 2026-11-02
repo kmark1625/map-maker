@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import {
-  DEFAULT_TERRAIN,
   TERRAIN_MAP,
   TERRAINS,
   terrainAt,
@@ -16,7 +15,6 @@ export default function CellInspector() {
   const cells = useGridStore((s) => s.cells);
   const n = useGridStore((s) => s.n);
   const paintCell = useGridStore((s) => s.paintCell);
-  const eraseCell = useGridStore((s) => s.eraseCell);
 
   const focus = selected ?? hover;
   const focusTerrain: TerrainId | null = focus
@@ -74,15 +72,6 @@ export default function CellInspector() {
               ))}
             </div>
           </div>
-          {focusTerrain !== DEFAULT_TERRAIN ? (
-            <button
-              type="button"
-              onClick={() => eraseCell(focus.x, focus.y)}
-              className="rounded-md border border-stone-300 px-2 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
-            >
-              Reset to grass
-            </button>
-          ) : null}
         </div>
       ) : (
         <p className="text-sm text-stone-500">Hover or select a cell.</p>

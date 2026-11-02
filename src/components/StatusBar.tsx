@@ -14,7 +14,6 @@ export default function StatusBar() {
   const cells = useGridStore((s) => s.cells);
   const selected = useGridStore((s) => s.selected);
   const hover = useGridStore((s) => s.hover);
-  const viewport = useGridStore((s) => s.viewport);
 
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? tool;
   const focus = selected ?? hover;
@@ -39,7 +38,6 @@ export default function StatusBar() {
           ? `(${focus.x}, ${focus.y}) · ${TERRAIN_MAP[focusTerrain].label}`
           : "—"}
       </span>
-      <span className="tabular-nums">{Math.round(viewport.zoom * 100)}%</span>
       <span className="tabular-nums">
         {n}×{n} · {painted} painted
       </span>

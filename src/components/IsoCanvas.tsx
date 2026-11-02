@@ -8,7 +8,6 @@ import {
   useState,
   type MouseEvent,
   type SyntheticEvent,
-  type WheelEvent,
 } from "react";
 import {
   TERRAIN_MAP,
@@ -33,7 +32,6 @@ const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
   pan: "cursor-grab",
   paint: "cursor-crosshair",
-  erase: "cursor-crosshair",
 };
 
 function pointsToString(points: WorldPoint[]): string {
@@ -156,7 +154,7 @@ export default function IsoCanvas() {
     originX: number;
     originY: number;
   } | null>(null);
-  const strokeRef = useRef<"paint" | "erase" | null>(null);
+  const strokeRef = useRef<"paint" | null>(null);
   const [panning, setPanning] = useState(false);
 
   const tool = useGridStore((s) => s.tool);
@@ -167,11 +165,9 @@ export default function IsoCanvas() {
   const viewport = useGridStore((s) => s.viewport);
   const fitSignal = useGridStore((s) => s.fitSignal);
   const paintCell = useGridStore((s) => s.paintCell);
-  const eraseCell = useGridStore((s) => s.eraseCell);
   const setSelected = useGridStore((s) => s.setSelected);
   const setHover = useGridStore((s) => s.setHover);
   const setViewport = useGridStore((s) => s.setViewport);
-  const zoomAt = useGridStore((s) => s.zoomAt);
   const fitGrid = useGridStore((s) => s.fitGrid);
 
   const drawOrder = useMemo(() => cellsInDrawOrder(n), [n]);
@@ -216,10 +212,6 @@ export default function IsoCanvas() {
       paintCell(cell.x, cell.y);
       setSelected(cell);
       strokeRef.current = "paint";
-    } else {
-      eraseCell(cell.x, cell.y);
-      setSelected(cell);
-      strokeRef.current = "erase";
     }
   };
 
@@ -234,10 +226,8 @@ export default function IsoCanvas() {
       });
       return;
     }
-    const stroke = strokeRef.current;
-    if (stroke && cell) {
-      if (stroke === "paint") paintCell(cell.x, cell.y);
-      else eraseCell(cell.x, cell.y);
+    if (strokeRef.current && cell) {
+      paintCell(cell.x, cell.y);
       setSelected(cell);
     }
   };
@@ -253,21 +243,7 @@ export default function IsoCanvas() {
     setHover(null);
   };
 
-  const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, {
-      sx: e.clientX - rect.left,
-      sy: e.clientY - rect.top,
-    });
-  };
-
   const stop = (e: SyntheticEvent) => e.stopPropagation();
-
-  const zoomStep = (factor: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    zoomAt(factor, { sx: rect.width / 2, sy: rect.height / 2 });
-  };
 
   const fit = () => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -284,7 +260,6 @@ export default function IsoCanvas() {
       onMouseMove={handleMouseMove}
       onMouseUp={endStroke}
       onMouseLeave={handleMouseLeave}
-      onWheel={handleWheel}
       className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${
         panning ? "cursor-grabbing" : TOOL_CURSORS[tool]
       }`}
@@ -308,7 +283,6 @@ export default function IsoCanvas() {
       {toolMeta ? (
         <div
           onMouseDown={stop}
-          onWheel={stop}
           className="absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm"
         >
           <span className="font-semibold text-white">{toolMeta.label}</span> —{" "}
@@ -318,28 +292,8 @@ export default function IsoCanvas() {
 
       <div
         onMouseDown={stop}
-        onWheel={stop}
         className="absolute right-4 bottom-4 flex items-center gap-1 rounded-md border border-stone-600 bg-stone-900/90 px-1.5 py-1 shadow-sm"
       >
-        <button
-          type="button"
-          title="Zoom out"
-          onClick={() => zoomStep(1 / 1.25)}
-          className="rounded px-2 py-0.5 text-sm font-semibold text-stone-200 hover:bg-stone-700"
-        >
-          −
-        </button>
-        <span className="w-12 text-center text-xs tabular-nums text-stone-400">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          type="button"
-          title="Zoom in"
-          onClick={() => zoomStep(1.25)}
-          className="rounded px-2 py-0.5 text-sm font-semibold text-stone-200 hover:bg-stone-700"
-        >
-          +
-        </button>
         <button
           type="button"
           title="Fit grid to view"

@@ -44,7 +44,7 @@ export default function MapEditor() {
             Render Map →
           </Link>
           <p className="hidden text-xs text-stone-500 md:block">
-            Click or drag to paint · Scroll to zoom · F fits the grid
+            Click or drag to paint · F fits the grid
           </p>
         </header>
         <div className="flex min-h-0 flex-1">
