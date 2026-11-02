@@ -19,7 +19,6 @@ import forestTile from "@/app/assets/images/tiles/forest.webp";
 import sideTile from "@/app/assets/images/side_tiles/side_icy_mountain.webp";
 import cliffLipTile from "@/app/assets/images/tiles/cliff_with_grass_lip.webp";
 import bareRockTile from "@/app/assets/images/tiles/bare_cliff_rock.webp";
-import deepRockTile from "@/app/assets/images/tiles/deep_underbelly_rock.webp";
 import {
   ISLAND_D,
   ISLAND_H,
@@ -72,10 +71,13 @@ const TILE_URLS: Record<TerrainId, string> = {
 const SURFACE_SIDE_URL = cliffLipTile.src;
 const ROCK_SIDE_URL = bareRockTile.src;
 const ICE_SIDE_URL = sideTile.src;
-const DEEP_SIDE_URL = deepRockTile.src;
 // z = 0 is the cap under the terrain, increasing downward (ISLAND_H = 10).
-// Bands follow the concept art: icy blue cliffs up top, pale ice strata mid,
-// dark purple underbelly at the keel.
+// Bands follow floating_island_2.webp: icy blue cliffs above the waterline,
+// pale ice strata at the sea, deep submerged ice below (flat color, seen
+// only when orbiting under the ocean plane).
+// Sea level for the iceberg-in-ocean read: plateau + upper cliff stay dry,
+// the tapering keel sits below the water.
+const SEA_Y = -CUBE * 2.1;
 const ROCK_MAX_Z = 3;
 const ICE_MAX_Z = 6;
 function islandSideBand(z: number): number {
@@ -139,7 +141,7 @@ export default function ThreeCanvas({
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.06;
+      renderer.toneMappingExposure = 1.12;
     }
     renderer.domElement.style.display = "block";
     container.appendChild(renderer.domElement);
@@ -175,7 +177,7 @@ export default function ThreeCanvas({
     const fill = new THREE.DirectionalLight(0x9ecfff, 0);
     fill.position.set(-1, 0.5, -0.8);
     scene.add(fill);
-    const underglow = new THREE.DirectionalLight(0x7a6cff, 0);
+    const underglow = new THREE.DirectionalLight(0x35b6e8, 0); // sea bounce in vibrant
     underglow.position.set(0.2, -1, 0.3);
     scene.add(underglow);
     const setLighting = (preset: LightingPreset) => {
@@ -187,7 +189,7 @@ export default function ThreeCanvas({
         sun.intensity = 1.4;
         sun.position.set(1.0, 1.1, 0.7).normalize().multiplyScalar(sunDist);
         fill.intensity = 0.5;
-        underglow.intensity = 0.35;
+        underglow.intensity = 0.45;
       } else {
         hemi.color.set(0xffffff);
         hemi.groundColor.set(0x8a8478);
@@ -237,10 +239,12 @@ export default function ThreeCanvas({
       bgCanvas.height = 512;
       const bctx = bgCanvas.getContext("2d");
       if (bctx) {
+        // Bright daylight sea/sky backdrop (floating_island_2): pale centre
+        // behind the plateau deepening to ocean blue at the frame edge.
         const grad = bctx.createRadialGradient(256, 230, 40, 256, 256, 360);
-        grad.addColorStop(0, "#2b3a4a");
-        grad.addColorStop(0.55, "#16202c");
-        grad.addColorStop(1, "#0c1118");
+        grad.addColorStop(0, "#a8dcff");
+        grad.addColorStop(0.55, "#3a9be0");
+        grad.addColorStop(1, "#1f7fd0");
         bctx.fillStyle = grad;
         bctx.fillRect(0, 0, 512, 512);
         const bgTex = new THREE.CanvasTexture(bgCanvas);
@@ -277,7 +281,7 @@ export default function ThreeCanvas({
     const islandSideMats = [
       new THREE.MeshLambertMaterial({ color: "#7fc4e4" }),
       new THREE.MeshLambertMaterial({ color: "#ffffff" }),
-      new THREE.MeshLambertMaterial({ color: "#5b4a8a" }),
+      new THREE.MeshLambertMaterial({ color: "#2a6a9e" }), // submerged ice
     ];
     // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
     const islandBoxMatsByBand = islandSideMats.map((side) => [
@@ -324,7 +328,7 @@ export default function ThreeCanvas({
     );
     applySideTexture(ROCK_SIDE_URL, [islandSideMats[0]]);
     applySideTexture(ICE_SIDE_URL, [islandSideMats[1]]);
-    applySideTexture(DEEP_SIDE_URL, [islandSideMats[2]]);
+    // Band 2 stays flat deep-ice blue: it is the submerged iceberg body.
     const gridGroup = new THREE.Group();
     scene.add(gridGroup);
     const islandGroup = new THREE.Group();
@@ -348,12 +352,22 @@ export default function ThreeCanvas({
       door: std("#4a2e18"), stonePost: std("#8a93a3"), snow: std("#ffffff"), rock: std("#7e9cb5"),
       moss: std("#4a9e4f"), crystal: std("#9beaff", { emissive: "#37e0ff", emissiveIntensity: 1.1 }),
       root: std("#6b5a4a"),
+      ice: std("#eaf9ff", { emissive: "#bfe6f5", emissiveIntensity: 0.22 }), iceDeep: std("#a8dcf5", { emissive: "#7fc8e8", emissiveIntensity: 0.18 }), path: std("#ecd9a0"),
+      lily: std("#57b368"), flowerWhite: std("#ffffff"), flowerPink: std("#ffb7d5"),
     };
+    // Snow peaks in island_2 are stacked white blocks: white tops with pale
+    // blue-grey shadow sides on every level, not grey stone with a cap.
     const snowTopMat = new THREE.MeshLambertMaterial({ color: "#ffffff" });
+    const snowSideMat = new THREE.MeshLambertMaterial({ color: "#cfe3f2" });
     const snowBoxMats = [
-      terrainSideMats.stone.right, terrainSideMats.stone.left, snowTopMat,
-      bottomMat, terrainSideMats.stone.right, terrainSideMats.stone.left,
+      snowSideMat, snowSideMat, snowTopMat,
+      bottomMat, snowSideMat, snowSideMat,
     ];
+    const shelfTopMat = new THREE.MeshLambertMaterial({ color: "#eaf9ff" });
+    const shelfSideMat = new THREE.MeshLambertMaterial({ color: "#9fd8f2" });
+    const shelfBoxMats = [shelfSideMat, shelfSideMat, shelfTopMat, shelfSideMat, shelfSideMat, shelfSideMat];
+    const foamMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.55, depthWrite: false });
+    const lagoonMat = new THREE.MeshBasicMaterial({ color: "#3fb3ec" });
     const dGeo = {
       trunk: new THREE.CylinderGeometry(CUBE * 0.055, CUBE * 0.075, CUBE * 0.38, 6),
       blob: new THREE.SphereGeometry(1, 7, 5),
@@ -370,7 +384,12 @@ export default function ThreeCanvas({
       rock: new THREE.DodecahedronGeometry(1, 0),
       root: new THREE.ConeGeometry(CUBE * 0.11, CUBE * 1.4, 6),
       vine: new THREE.BoxGeometry(CUBE * 0.035, 1, CUBE * 0.035),
-      snowSlab: new THREE.BoxGeometry(CUBE * 1.05, CUBE * 0.13, CUBE * 1.05),
+      snowSlab: new THREE.BoxGeometry(CUBE * 1.12, CUBE * 0.14, CUBE * 1.12),
+      shelf: new THREE.BoxGeometry(CUBE * 1.04, CUBE * 0.22, CUBE * 1.04),
+      pathSlab: new THREE.BoxGeometry(CUBE * 0.48, CUBE * 0.035, CUBE * 0.48),
+      lilyPad: new THREE.CircleGeometry(CUBE * 0.16, 10),
+      flower: new THREE.SphereGeometry(CUBE * 0.055, 6, 5),
+      foam: new THREE.CircleGeometry(1, 18),
     };
     // Animated waterfall sheet + soft mist sprite (canvas textures).
     const fallCanvas = document.createElement("canvas");
@@ -404,6 +423,38 @@ export default function ThreeCanvas({
     }
     const mistTex = new THREE.CanvasTexture(mistCanvas);
     loadedTextures.push(mistTex);
+    // Ocean surface (island_2): saturated blue with wavy pale streaks,
+    // tiled and slowly drifted in the render loop.
+    const oceanCanvas = document.createElement("canvas");
+    oceanCanvas.width = 512; oceanCanvas.height = 512;
+    const octx = oceanCanvas.getContext("2d");
+    if (octx) {
+      octx.fillStyle = "#2f9be8"; octx.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 42; i++) {
+        const y0 = cellRand(i, 1, 91) * 512;
+        const len = 60 + cellRand(i, 2, 92) * 190;
+        const x0 = cellRand(i, 3, 93) * 512 - 40;
+        const amp = 3 + cellRand(i, 4, 94) * 7;
+        octx.strokeStyle = i % 3 ? "rgba(191,234,255,0.32)" : "rgba(255,255,255,0.42)";
+        octx.lineWidth = 2 + cellRand(i, 5, 95) * 2.5;
+        octx.beginPath();
+        octx.moveTo(x0, y0);
+        octx.bezierCurveTo(x0 + len * 0.3, y0 - amp, x0 + len * 0.6, y0 + amp, x0 + len, y0 - amp * 0.4);
+        octx.stroke();
+      }
+      for (let i = 0; i < 22; i++) {
+        octx.fillStyle = "rgba(31,127,208,0.25)";
+        octx.beginPath();
+        octx.ellipse(cellRand(i, 6, 96) * 512, cellRand(i, 7, 97) * 512, 18 + cellRand(i, 8, 98) * 40, 6 + cellRand(i, 9, 99) * 10, 0, 0, Math.PI * 2);
+        octx.fill();
+      }
+    }
+    const oceanTex = new THREE.CanvasTexture(oceanCanvas);
+    oceanTex.wrapS = THREE.RepeatWrapping; oceanTex.wrapT = THREE.RepeatWrapping;
+    oceanTex.repeat.set(9, 9);
+    oceanTex.colorSpace = THREE.SRGBColorSpace;
+    loadedTextures.push(oceanTex);
+    const oceanMat = new THREE.MeshLambertMaterial({ map: oceanTex, side: THREE.DoubleSide });
     const dAnim: {
       blades: THREE.Object3D | null;
       rocks: { mesh: THREE.Mesh; baseY: number; phase: number }[];
@@ -528,31 +579,35 @@ export default function ThreeCanvas({
             if (!seen.has(k) && at(nx, ny) === "stone") { seen.add(k); queue.push({ x: nx, y: ny }); }
           }
         }
-        const plaza = comp.some((c) => DIRS.some(([dx, dy]) => at(c.x + dx, c.y + dy) === "water"));
+        // Plaza = mostly water-ringed (the central 2x2). The northern peak
+        // clusters merely touch the lake inlet with 1-2 cells, so a plain
+        // "any water neighbour" test wrongly flattened them (v1 bug).
+        const wetCells = comp.filter((c) => DIRS.some(([dx, dy]) => at(c.x + dx, c.y + dy) === "water")).length;
+        const plaza = wetCells / comp.length > 0.5;
         if (plaza || comp.length < 3) continue;
         const cx = comp.reduce((s, c) => s + c.x, 0) / comp.length;
         const cy = comp.reduce((s, c) => s + c.y, 0) / comp.length;
         const peak = comp.reduce((best, c) =>
           Math.hypot(c.x - cx, c.y - cy) < Math.hypot(best.x - cx, best.y - cy) ? c : best);
         for (const c of comp) {
-          const extra = Math.max(0, 3 - (Math.abs(c.x - peak.x) + Math.abs(c.y - peak.y)));
+          // island_2 peaks are taller (4 extra) and all-white: every raised
+          // level is a snow block with an overhanging slab lip.
+          const extra = Math.max(0, 4 - (Math.abs(c.x - peak.x) + Math.abs(c.y - peak.y)));
           const p = cellCenter(c, n);
           for (let h = 1; h <= extra; h++) {
-            const cube = shadowed(new THREE.Mesh(cubeGeo, h === extra && extra >= 2 ? snowBoxMats : terrainBoxMats.stone));
+            const cube = shadowed(new THREE.Mesh(cubeGeo, snowBoxMats));
             cube.position.set(p.x, CUBE / 2 + h * CUBE, p.z);
             dioramaGroup.add(cube);
-          }
-          if (extra >= 2) {
-            const cap = shadowed(new THREE.Mesh(dGeo.snowSlab, dMats.snow));
-            cap.position.set(p.x, CUBE + extra * CUBE + CUBE * 0.05, p.z);
-            cap.rotation.y = cellRand(c.x, c.y, 6) * 0.3;
-            dioramaGroup.add(cap);
+            const lip = shadowed(new THREE.Mesh(dGeo.snowSlab, dMats.snow));
+            lip.position.set(p.x, CUBE + h * CUBE - CUBE * 0.06, p.z);
+            lip.rotation.y = (cellRand(c.x, c.y, 6 + h) - 0.5) * 0.14;
+            dioramaGroup.add(lip);
           }
         }
         // Mountain stream down the peak's south face.
         const pp = cellCenter(peak, n);
-        const stream = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.2, CUBE * 3.4), streamMat);
-        stream.position.set(pp.x, CUBE * 1.9, pp.z + CUBE * 0.56);
+        const stream = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.2, CUBE * 4.4), streamMat);
+        stream.position.set(pp.x, CUBE * 2.5, pp.z + CUBE * 0.58);
         stream.rotation.x = 0.18;
         dioramaGroup.add(stream);
       }
@@ -601,20 +656,72 @@ export default function ThreeCanvas({
         buildCottage(c, n, cottageCount++);
         placed.push(c);
       }
+      // Dirt paths (island_2): from each bridge along its axis, plus an
+      // L-route from every placed building toward the plaza centre.
+      const pathCells = new Set<string>();
+      const addPath = (x: number, y: number) => {
+        const t = at(x, y);
+        if (x >= 0 && y >= 0 && x < n && y < n && (t === "grass" || t === "sand")) pathCells.add(`${x},${y}`);
+      };
+      for (const b of bridges) {
+        for (let s = -4; s <= 4; s++) {
+          if (s === 0) continue;
+          if (b.alongX) addPath(b.cell.x + s, b.cell.y); else addPath(b.cell.x, b.cell.y + s);
+        }
+      }
+      const plazaC = { x: Math.floor(n / 2), y: Math.floor(n / 2) };
+      for (const c of placed) {
+        let { x, y } = c;
+        while (x !== plazaC.x) { x += Math.sign(plazaC.x - x); addPath(x, y); }
+        while (y !== plazaC.y) { y += Math.sign(plazaC.y - y); addPath(x, y); }
+      }
+      for (const key of pathCells) {
+        const [x, y] = key.split(",").map(Number);
+        if (placed.some((c) => c.x === x && c.y === y)) continue;
+        const p = cellCenter({ x, y }, n);
+        const slab = new THREE.Mesh(dGeo.pathSlab, dMats.path);
+        slab.position.set(p.x + (cellRand(x, y, 23) - 0.5) * CUBE * 0.08, CUBE + CUBE * 0.02, p.z + (cellRand(x, y, 24) - 0.5) * CUBE * 0.08);
+        slab.rotation.y = (cellRand(x, y, 25) - 0.5) * 0.35;
+        slab.receiveShadow = true;
+        dioramaGroup.add(slab);
+      }
+      // Lily pads + flowers on the lake (island_2 moat detail).
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        if (at(x, y) !== "water" || nearBridge({ x, y }) || cellRand(x, y, 26) < 0.68) continue;
+        const p = cellCenter({ x, y }, n);
+        const lx = p.x + (cellRand(x, y, 27) - 0.5) * CUBE * 0.45;
+        const lz = p.z + (cellRand(x, y, 28) - 0.5) * CUBE * 0.45;
+        const pad = new THREE.Mesh(dGeo.lilyPad, dMats.lily);
+        pad.rotation.x = -Math.PI / 2;
+        pad.position.set(lx, CUBE * 0.84, lz);
+        dioramaGroup.add(pad);
+        if (cellRand(x, y, 29) > 0.45) {
+          const fl = new THREE.Mesh(dGeo.flower, cellRand(x, y, 30) > 0.5 ? dMats.flowerWhite : dMats.flowerPink);
+          fl.position.set(lx + CUBE * 0.08, CUBE * 0.87, lz);
+          dioramaGroup.add(fl);
+        }
+      }
       // 3. Two south-rim waterfalls with mist at the base.
       const rimZ = (n / 2) * CUBE + 3;
       for (const fx of [Math.floor(n * 0.28), Math.floor(n * 0.72)]) {
         const p = cellCenter({ x: fx, y: n - 1 }, n);
-        const fall = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.72, CUBE * 6.2), fallMat);
-        fall.position.set(p.x, CUBE - CUBE * 2.9, rimZ);
+        // Falls now drop from the plateau lip to sea level (island_2).
+        const fallH = CUBE - SEA_Y;
+        const fall = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.72, fallH), fallMat);
+        fall.position.set(p.x, (CUBE + SEA_Y) / 2, rimZ);
         dioramaGroup.add(fall);
         const lip = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * 0.72, CUBE * 0.9),
           new THREE.MeshBasicMaterial({ color: "#7fd4ff", transparent: true, opacity: 0.85 }));
         lip.rotation.x = -Math.PI / 2;
         lip.position.set(p.x, CUBE + 1.5, p.z + CUBE * 0.2);
         dioramaGroup.add(lip);
-        addMist(dioramaGroup, p.x, -CUBE * 5.4, rimZ + CUBE * 0.5, CUBE * 2.6, 0.4);
-        addMist(dioramaGroup, p.x + CUBE * 0.5, -CUBE * 4.6, rimZ + CUBE * 0.4, CUBE * 1.8, 0.3);
+        const foam = new THREE.Mesh(dGeo.foam, foamMat);
+        foam.rotation.x = -Math.PI / 2;
+        foam.position.set(p.x, SEA_Y + 1.2, rimZ + CUBE * 0.35);
+        foam.scale.set(CUBE * 0.95, CUBE * 0.6, 1);
+        dioramaGroup.add(foam);
+        addMist(dioramaGroup, p.x, SEA_Y + CUBE * 0.35, rimZ + CUBE * 0.5, CUBE * 2.2, 0.45);
+        addMist(dioramaGroup, p.x + CUBE * 0.5, SEA_Y + CUBE * 0.7, rimZ + CUBE * 0.4, CUBE * 1.5, 0.3);
       }
       // 4. Cliff dressing: moss + vines on the upper ring, corner crystals.
       const ox = Math.floor((n - ISLAND_W) / 2);
@@ -649,40 +756,87 @@ export default function ThreeCanvas({
           dioramaGroup.add(cry);
         }
       }
-      // 5. Roots under the keel, under-mist, floating rocks, sparkles.
-      for (let i = 0; i < 6; i++) {
-        const root = new THREE.Mesh(dGeo.root, dMats.root);
-        const a = (i / 6) * Math.PI * 2;
-        root.position.set(Math.cos(a) * CUBE * (0.6 + cellRand(i, 1, 51)), -ISLAND_H * CUBE - CUBE * 0.35, Math.sin(a) * CUBE * (0.6 + cellRand(i, 2, 52)));
-        root.rotation.set(Math.PI + (cellRand(i, 3, 53) - 0.5) * 0.5, 0, (cellRand(i, 4, 54) - 0.5) * 0.5);
-        root.scale.y = 0.7 + cellRand(i, 5, 55) * 0.8;
-        dioramaGroup.add(root);
+      // 5. Ocean + ice shelf + floating ice (island_2 iceberg-in-sea read).
+      // The v1 void dressing (roots, under-mist, floating rocks) is gone:
+      // the keel is submerged, so the dressing lives at the waterline.
+      // Oversized so the sea fills the frame (no visible plane edge).
+      const ocean = new THREE.Mesh(new THREE.PlaneGeometry(CUBE * (n + 70), CUBE * (n + 70)), oceanMat);
+      ocean.rotation.x = -Math.PI / 2;
+      ocean.position.y = SEA_Y;
+      dioramaGroup.add(ocean);
+      const lagX = Math.floor(n / 2) - 1;
+      const lagoonCells = new Set([0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => `${lagX + dx},${n + dy}`)));
+      const chebToGrid = (x: number, y: number) =>
+        Math.max(x < 0 ? -x : x > n - 1 ? x - (n - 1) : 0, y < 0 ? -y : y > n - 1 ? y - (n - 1) : 0);
+      for (let y = -3; y < n + 3; y++) for (let x = -3; x < n + 3; x++) {
+        const d = chebToGrid(x, y);
+        if (d < 1 || d > 3) continue;
+        const forced = lagoonCells.has(`${x},${y}`);
+        // Solid inner apron (d<=2); only the outer ring breaks up.
+        if (!forced && d === 3 && cellRand(x, y, 81) < 0.5) continue;
+        const p = cellCenter({ x, y }, n);
+        const slab = shadowed(new THREE.Mesh(dGeo.shelf, shelfBoxMats));
+        slab.position.set(p.x, SEA_Y + CUBE * 0.05 + cellRand(x, y, 82) * CUBE * 0.04, p.z);
+        slab.rotation.y = (cellRand(x, y, 83) - 0.5) * 0.08;
+        slab.scale.setScalar(1.02 + cellRand(x, y, 84) * 0.14); // overlap: no checkerboard gaps
+        dioramaGroup.add(slab);
+        if (!forced && cellRand(x, y, 85) > 0.78)
+          blobAt(dioramaGroup, dMats.moss, p.x + (cellRand(x, y, 86) - 0.5) * CUBE * 0.4, SEA_Y + CUBE * 0.2, p.z, CUBE * 0.15);
+        if (d === 1 && cellRand(x, y, 87) > 0.55) {
+          const foam = new THREE.Mesh(dGeo.foam, foamMat);
+          foam.rotation.x = -Math.PI / 2;
+          foam.position.set(p.x, SEA_Y + 1, p.z);
+          foam.scale.set(CUBE * 0.55, CUBE * 0.55, 1);
+          dioramaGroup.add(foam);
+        }
       }
-      addMist(dioramaGroup, 0, -ISLAND_H * CUBE * 0.82, CUBE * 1.5, CUBE * 7, 0.14);
-      addMist(dioramaGroup, -CUBE * 2, -ISLAND_H * CUBE * 0.6, -CUBE, CUBE * 5, 0.1);
-      for (let i = 0; i < 9; i++) {
-        const rock = shadowed(new THREE.Mesh(dGeo.rock, dMats.rock));
+      // South lagoon pond resting on the shelf, with lilies.
+      const lagC = cellCenter({ x: lagX, y: n }, n);
+      const lagoon = new THREE.Mesh(dGeo.foam, lagoonMat);
+      lagoon.rotation.x = -Math.PI / 2;
+      lagoon.position.set(lagC.x, SEA_Y + CUBE * 0.22, lagC.z + CUBE * 0.5);
+      lagoon.scale.set(CUBE * 1.35, CUBE * 0.85, 1);
+      dioramaGroup.add(lagoon);
+      for (let i = 0; i < 3; i++) {
+        const pad = new THREE.Mesh(dGeo.lilyPad, dMats.lily);
+        pad.rotation.x = -Math.PI / 2;
+        pad.position.set(lagC.x + (cellRand(i, 1, 88) - 0.5) * CUBE * 1.4, SEA_Y + CUBE * 0.25, lagC.z + CUBE * 0.5 + (cellRand(i, 2, 89) - 0.5) * CUBE * 0.7);
+        dioramaGroup.add(pad);
+      }
+      // Floating ice chunks bobbing on the ocean (some paired, as in ref).
+      for (let i = 0; i < 12; i++) {
         const a = cellRand(i, 1, 61) * Math.PI * 2;
-        const r = CUBE * (n / 2 + 0.8 + cellRand(i, 2, 62) * 2.6);
-        rock.position.set(Math.cos(a) * r, -CUBE * 3.5 + cellRand(i, 3, 63) * CUBE * 4.5, Math.sin(a) * r);
-        rock.rotation.set(cellRand(i, 4, 64) * 3, cellRand(i, 5, 65) * 3, 0);
-        rock.scale.setScalar(CUBE * (0.12 + cellRand(i, 6, 66) * 0.3));
-        dioramaGroup.add(rock);
-        dAnim.rocks.push({ mesh: rock, baseY: rock.position.y, phase: cellRand(i, 7, 67) * Math.PI * 2 });
+        const r = CUBE * (n / 2 + 3.6 + cellRand(i, 2, 62) * 5.5);
+        const chunk = shadowed(new THREE.Mesh(dGeo.rock, i % 3 ? dMats.ice : dMats.iceDeep));
+        chunk.position.set(Math.cos(a) * r, SEA_Y + CUBE * 0.08, Math.sin(a) * r);
+        chunk.rotation.set(cellRand(i, 4, 64) * 3, cellRand(i, 5, 65) * 3, 0);
+        const s = CUBE * (0.25 + cellRand(i, 6, 66) * 0.55);
+        chunk.scale.set(s, s * 0.55, s);
+        dioramaGroup.add(chunk);
+        dAnim.rocks.push({ mesh: chunk, baseY: chunk.position.y, phase: cellRand(i, 7, 67) * Math.PI * 2 });
+        if (i % 3 === 0) {
+          const pup = shadowed(new THREE.Mesh(dGeo.rock, dMats.ice));
+          pup.position.set(chunk.position.x + s * 1.6, SEA_Y + CUBE * 0.05, chunk.position.z + s * 0.9);
+          pup.scale.set(s * 0.45, s * 0.25, s * 0.45);
+          pup.rotation.y = cellRand(i, 8, 68) * 3;
+          dioramaGroup.add(pup);
+          dAnim.rocks.push({ mesh: pup, baseY: pup.position.y, phase: cellRand(i, 9, 69) * Math.PI * 2 });
+        }
       }
-      const sparkCount = 130;
+      // Sea-surface glints (the v1 keel sparkles, moved to the water).
+      const sparkCount = 110;
       const pos = new Float32Array(sparkCount * 3);
       for (let i = 0; i < sparkCount; i++) {
         const a = cellRand(i, 1, 71) * Math.PI * 2;
-        const r = CUBE * (n / 2 - 1 + cellRand(i, 2, 72) * 4);
+        const r = CUBE * (n / 2 + 2.5 + cellRand(i, 2, 72) * 7);
         pos[i * 3] = Math.cos(a) * r;
-        pos[i * 3 + 1] = -ISLAND_H * CUBE * 0.7 + cellRand(i, 3, 73) * CUBE * (ISLAND_H * 0.85);
+        pos[i * 3 + 1] = SEA_Y + 2 + cellRand(i, 3, 73) * 5;
         pos[i * 3 + 2] = Math.sin(a) * r;
       }
       const sparkGeo = new THREE.BufferGeometry();
       sparkGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       const sparkles = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
-        color: "#aaeeff", size: 7, sizeAttenuation: true, transparent: true, opacity: 0.85,
+        color: "#ffffff", size: 6, sizeAttenuation: true, transparent: true, opacity: 0.6,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       dioramaGroup.add(sparkles);
@@ -997,15 +1151,18 @@ export default function ThreeCanvas({
     };
 
     const fit = () => {
-      const footprint = Math.hypot(gridN * CUBE, gridN * CUBE) / 2;
-      const top = readonly ? CUBE * 4.2 : CUBE; // peaks + windmill headroom
-      const bottom = readonly ? -ISLAND_H * CUBE : 0;
+      // Readonly framing follows island_2: plateau + ice shelf fill the
+      // frame over the ocean (submerged keel excluded from the fit).
+      const footprint = Math.hypot((gridN + (readonly ? 3 : 0)) * CUBE, (gridN + (readonly ? 3 : 0)) * CUBE) / 2;
+      const top = readonly ? CUBE * 5.4 : CUBE; // snow peaks + windmill headroom
+      const bottom = readonly ? SEA_Y - CUBE * 0.4 : 0;
       const radius =
         Math.hypot(footprint, readonly ? (top - bottom) / 2 : 0) + CUBE * 0.75;
       const vFov = THREE.MathUtils.degToRad(camera.fov);
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
       const dist = radius / Math.sin(Math.min(vFov, hFov) / 2);
-      const polar = Math.acos(1 / Math.sqrt(3)); // ~54.7deg classic iso tilt
+      // island_2 is a high, near-top-down view; editor keeps classic iso.
+      const polar = readonly ? 0.72 : Math.acos(1 / Math.sqrt(3));
       const azim = Math.PI / 4;
       const dir = new THREE.Vector3(
         Math.sin(polar) * Math.sin(azim),
@@ -1073,7 +1230,7 @@ export default function ThreeCanvas({
         sunDist = nextN * CUBE * 2.2;
         sun.position.setLength(sunDist);
         const sc = sun.shadow.camera;
-        const extent = nextN * CUBE * 0.95;
+        const extent = (nextN + 5) * CUBE * 0.75; // plateau + ice shelf
         sc.left = -extent; sc.right = extent; sc.top = extent; sc.bottom = -extent;
         sc.near = CUBE; sc.far = sunDist * 2.5;
         sc.updateProjectionMatrix();
@@ -1208,8 +1365,10 @@ export default function ThreeCanvas({
         if (dAnim.blades) dAnim.blades.rotation.z -= dt * 0.0016;
         fallTex.offset.y = (fallTex.offset.y - dt * 0.0011) % 1;
         streamTex.offset.y = (streamTex.offset.y - dt * 0.0016) % 1;
+        oceanTex.offset.y = (oceanTex.offset.y - dt * 0.000018) % 1;
+        oceanTex.offset.x = (oceanTex.offset.x + dt * 0.000007) % 1;
         for (const r of dAnim.rocks) {
-          r.mesh.position.y = r.baseY + Math.sin(now * 0.0007 + r.phase) * CUBE * 0.16;
+          r.mesh.position.y = r.baseY + Math.sin(now * 0.0007 + r.phase) * CUBE * 0.07;
           r.mesh.rotation.y += dt * 0.00012;
         }
         if (dAnim.sparkles) dAnim.sparkles.rotation.y = now * 0.00002;
