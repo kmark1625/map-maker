@@ -260,7 +260,7 @@ export default function IsoCanvas() {
       onMouseMove={handleMouseMove}
       onMouseUp={endStroke}
       onMouseLeave={handleMouseLeave}
-      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${
+      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none dark:bg-zinc-950 ${
         panning ? "cursor-grabbing" : TOOL_CURSORS[tool]
       }`}
     >

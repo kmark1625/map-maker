@@ -21,14 +21,14 @@ export default function StatusBar() {
   const painted = Object.keys(cells).length;
 
   return (
-    <footer className="flex items-center gap-4 border-t border-stone-300 bg-white px-4 py-1.5 text-xs text-stone-600">
+    <footer className="flex items-center gap-4 border-t border-stone-300 bg-white px-4 py-1.5 text-xs text-stone-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
       <span>
-        <span className="font-semibold text-stone-900">{toolLabel}</span> tool
+        <span className="font-semibold text-stone-900 dark:text-zinc-100">{toolLabel}</span> tool
       </span>
       {tool === "paint" ? (
         <span className="hidden sm:inline">
           Paint:{" "}
-          <span className="font-medium text-stone-900">
+          <span className="font-medium text-stone-900 dark:text-zinc-100">
             {TERRAIN_MAP[activeTerrain].label}
           </span>
         </span>

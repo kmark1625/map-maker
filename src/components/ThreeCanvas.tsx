@@ -120,7 +120,7 @@ export default function ThreeCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ViewApi | null>(null);
   const [wander, setWanderState] = useState(readonly);
-  const [lighting, setLightingState] = useState<LightingPreset>("vibrant");
+  const [lighting, setLightingState] = useState<LightingPreset>("classic");
 
   const tool = useGridStore((s) => s.tool);
   const n = useGridStore((s) => s.n);
@@ -1450,7 +1450,7 @@ export default function ThreeCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none ${readonly ? "cursor-default" : TOOL_CURSORS[tool]}`}
+      className={`relative min-w-0 flex-1 touch-none overflow-hidden bg-stone-800 select-none dark:bg-zinc-950 ${readonly ? "cursor-default" : TOOL_CURSORS[tool]}`}
     >
       {readonly ? (
         <div className="absolute top-3 left-3 flex items-center gap-2">
