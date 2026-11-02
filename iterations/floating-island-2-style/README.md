@@ -17,6 +17,8 @@ Plan: `visual-plan/PRD-v2-floating-island-2.md`.
 | 01_after_v2_default.png | First v2 pass: ocean/shelf in, peaks still flat, ocean edge + shelf gaps visible |
 | 02_after_v2_fix1.png | Fix round: peaks restored (plaza-test bug), calmer waves, tighter fit |
 | 03_after_v2_final.png | Final: ocean fills frame, solid shelf apron |
+| 04_before_side_h0-vs-below.png | Before (next change): side elevation — surface cube side (grass-lipped cliff) vs island band below, to the shelf/waterline |
+| 04_before_side_h0-vs-below_detail.png | Same angle, close-up of the surface/below band boundary |
 
 ## What changed (all in `src/components/ThreeCanvas.tsx`, readonly only)
 - Ocean at `SEA_Y = -2.1 * CUBE`: procedural wavy canvas texture, slow drift;
