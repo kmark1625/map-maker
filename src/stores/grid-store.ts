@@ -135,6 +135,7 @@ interface GridState {
   setTool: (tool: ToolId) => void;
   setActiveTerrain: (terrain: TerrainId) => void;
   setN: (n: number) => void;
+  setCells: (cells: Record<string, TerrainId>) => void;
   paintCell: (x: number, y: number, terrain?: TerrainId) => void;
   setSelected: (cell: CellCoord | null) => void;
   setHover: (cell: CellCoord | null) => void;
@@ -181,6 +182,7 @@ export const useGridStore = create<GridState>()((set) => ({
         hover: inBounds(state.hover),
       };
     }),
+  setCells: (cells) => set({ cells, selected: null, hover: null }),
   paintCell: (x, y, terrain) =>
     set((state) => {
       const t = terrain ?? state.activeTerrain;

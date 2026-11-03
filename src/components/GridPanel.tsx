@@ -1,6 +1,7 @@
 "use client";
 
 import { MAX_N, MIN_N, TERRAINS, useGridStore } from "@/stores/grid-store";
+import { useSuggestStore } from "@/stores/suggest-store";
 import { TILE_H } from "@/lib/iso";
 
 export default function GridPanel() {
@@ -12,6 +13,8 @@ export default function GridPanel() {
   const requestFit = useGridStore((s) => s.requestFit);
   const resetGrid = useGridStore((s) => s.resetGrid);
   const demoGrid = useGridStore((s) => s.demoGrid);
+  const suggest = useSuggestStore((s) => s.suggest);
+  const thinking = useSuggestStore((s) => s.thinking);
 
   return (
     <section className="rounded-lg border border-stone-300 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -61,6 +64,15 @@ export default function GridPanel() {
           className="flex-1 rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           Demo
+        </button>
+        <button
+          type="button"
+          title="Suggest a mood-based island layout (see panel below)"
+          disabled={thinking}
+          onClick={() => void suggest()}
+          className="flex-1 rounded-md border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500 dark:text-teal-200 dark:hover:bg-teal-950"
+        >
+          {thinking ? "…" : "Suggest"}
         </button>
         <button
           type="button"
