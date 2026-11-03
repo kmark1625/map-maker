@@ -206,6 +206,14 @@ describe("WebLLM wiring and repurpose", () => {
       assert.ok(gridPanel.includes(label), `GridPanel Suggest help lost ${label}`);
     }
     assert.ok(
+      gridPanel.includes("Load Cartographer for customized map suggestions"),
+      "GridPanel Suggest help should prompt to load Cartographer",
+    );
+    assert.ok(
+      gridPanel.includes("engineStatus"),
+      "GridPanel Cartographer hint should be gated on engine status",
+    );
+    assert.ok(
       read("src", "stores", "suggest-store.ts").includes("pickRandomMood("),
       "suggest() should rotate scenes via pickRandomMood",
     );

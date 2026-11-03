@@ -16,6 +16,11 @@ export default function GridPanel() {
   const suggest = useSuggestStore((s) => s.suggest);
   const thinking = useSuggestStore((s) => s.thinking);
   const last = useSuggestStore((s) => s.last);
+  const engineStatus = useSuggestStore((s) => s.engineStatus);
+  // Cartographer (LLM Designer) can still be loaded from idle/error;
+  // when ready/loading/unsupported there is nothing more to prompt for.
+  const showCartographerHint =
+    engineStatus === "idle" || engineStatus === "error";
 
   return (
     <section className="rounded-lg border border-stone-300 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -61,7 +66,7 @@ export default function GridPanel() {
         </button>
         <button
           type="button"
-          title="Suggest a random island — rotates between Serene lagoon, Rugged peaks, and Wild forest. Replaces the current layout; every click re-rolls."
+          title={`Suggest a random island — rotates between Serene lagoon, Rugged peaks, and Wild forest. Replaces the current layout; every click re-rolls.${showCartographerHint ? " Load Cartographer for customized map suggestions." : ""}`}
           disabled={thinking}
           onClick={() => void suggest()}
           className="flex-1 rounded-md border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500 dark:text-teal-200 dark:hover:bg-teal-950"
@@ -103,6 +108,11 @@ export default function GridPanel() {
           </p>
         )}
       </div>
+      {showCartographerHint ? (
+        <p className="mt-1 text-[11px] text-stone-400 dark:text-zinc-500">
+          Load Cartographer for customized map suggestions.
+        </p>
+      ) : null}
 
       <h2 className="mt-3 mb-2 text-xs font-semibold tracking-wide text-stone-500 uppercase dark:text-zinc-400">
         Terrain
