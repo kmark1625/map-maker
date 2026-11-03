@@ -27,7 +27,7 @@ export type ElfSpriteVariant = "fire" | "ice";
 
 /**
  * Map a selected character variant id to its sprite atlas. Variants
- * without sheets yet (shadow) fall back to the ice elf.
+ * without sheets yet (lightning) fall back to the ice elf.
  */
 export function elfSpriteVariant(selectedId: string): ElfSpriteVariant {
   return selectedId === "fire" ? "fire" : "ice";

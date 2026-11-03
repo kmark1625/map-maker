@@ -57,7 +57,7 @@ const TRAIL_MAX = 48;
 const ELEMENT_TRAIL: Record<string, string> = {
   fire: "#fb923c",
   ice: "#7dd3fc",
-  shadow: "#c084fc",
+  lightning: "#facc15",
 };
 const FACING_ORDER = ["S", "SE", "E", "NE", "N", "NW", "W", "SW"] as const;
 
@@ -999,7 +999,7 @@ export default function ThreeCanvas({
     };
 
     // Tile-effect hook: a fading element-tinted decal where the elf steps.
-    // Color follows the selected character variant (fire/ice/shadow).
+    // Color follows the selected character variant (fire/ice/lightning).
     const trailGeo = new THREE.CircleGeometry(TRAIL_R, 24);
     const trails: { mesh: THREE.Mesh; born: number }[] = [];
     const spawnTileEffect = (cell: CellCoord, now: number) => {

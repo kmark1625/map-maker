@@ -2,7 +2,7 @@ import type { StaticImageData } from "next/image";
 
 import fireVariant from "@/app/assets/images/character_select_screen/elf_fire_variant.png";
 import iceVariant from "@/app/assets/images/character_select_screen/elf_ice_variant.png";
-import shadowVariant from "@/app/assets/images/character_select_screen/elf_shadow_variant.png";
+import lightningVariant from "@/app/assets/images/character_select_screen/elf_lightning_variant.png";
 
 export interface CharacterVariant {
   id: string;
@@ -32,12 +32,13 @@ export const CHARACTER_VARIANTS: CharacterVariant[] = [
     accentDot: "bg-sky-500",
   },
   {
-    id: "shadow",
+    id: "lightning",
     name: "Elf Archer",
-    element: "Shadow",
-    description: "Strikes from darkness beneath a void moon and storm clouds.",
-    image: shadowVariant,
-    accentDot: "bg-zinc-800 dark:bg-zinc-200",
+    element: "Lightning",
+    description:
+      "Looses storm-charged arrows through thunderheads over storm-lashed citadels.",
+    image: lightningVariant,
+    accentDot: "bg-yellow-400",
   },
 ];
 
