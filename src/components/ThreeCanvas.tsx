@@ -885,8 +885,8 @@ export default function ThreeCanvas({
     let elfDir: ElfDirectionId = "S";
     let elfFrame = 0;
     let lastFrameAt = 0;
-    // Sprite atlas follows the selected character variant; variants
-    // without sheets fall back inside elfSpriteVariant.
+    // Sprite atlas follows the selected character variant; unknown ids
+    // fall back inside elfSpriteVariant.
     let elfVariant: ElfSpriteVariant = elfSpriteVariant(
       useCharacterStore.getState().selectedId,
     );

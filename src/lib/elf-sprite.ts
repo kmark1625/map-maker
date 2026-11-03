@@ -4,6 +4,8 @@ import fireSheetPart1 from "@/app/assets/images/character/fire_elf/8_directional
 import fireSheetPart2 from "@/app/assets/images/character/fire_elf/8_directional_part_2.png";
 import iceSheetPart1 from "@/app/assets/images/character/ice_elf/8_directional_part_1.png";
 import iceSheetPart2 from "@/app/assets/images/character/ice_elf/8_directional_part_2.png";
+import lightningSheetPart1 from "@/app/assets/images/character/lightning_elf/8_directional_part_1.png";
+import lightningSheetPart2 from "@/app/assets/images/character/lightning_elf/8_directional_part_2.png";
 
 /**
  * Elf sprite atlases, one per character variant that has sheets. Each
@@ -23,14 +25,16 @@ import iceSheetPart2 from "@/app/assets/images/character/ice_elf/8_directional_p
  */
 
 /** Character variants (see character-variants.ts) that have sprite sheets. */
-export type ElfSpriteVariant = "fire" | "ice";
+export type ElfSpriteVariant = "fire" | "ice" | "lightning";
 
 /**
- * Map a selected character variant id to its sprite atlas. Variants
- * without sheets yet (lightning) fall back to the ice elf.
+ * Map a selected character variant id to its sprite atlas. Unknown or
+ * legacy ids (e.g. the retired shadow variant) fall back to the ice elf.
  */
 export function elfSpriteVariant(selectedId: string): ElfSpriteVariant {
-  return selectedId === "fire" ? "fire" : "ice";
+  if (selectedId === "fire") return "fire";
+  if (selectedId === "lightning") return "lightning";
+  return "ice";
 }
 
 /** Facing directions in screen space, clockwise from front (toward camera). */
@@ -109,6 +113,28 @@ const FIRE_SHEET_2: SheetGeom = {
   ],
 };
 
+const LIGHTNING_SHEET_1: SheetGeom = {
+  image: lightningSheetPart1,
+  part: 1,
+  rows: [
+    { y0: 0, y1: 351, top: 82, bottom: 341 }, // S
+    { y0: 351, y1: 625, top: 363, bottom: 615 }, // E
+    { y0: 625, y1: 901, top: 636, bottom: 889 }, // W
+    { y0: 901, y1: 1254, top: 915, bottom: 1177 }, // N
+  ],
+};
+
+const LIGHTNING_SHEET_2: SheetGeom = {
+  image: lightningSheetPart2,
+  part: 2,
+  rows: [
+    { y0: 0, y1: 316, top: 61, bottom: 309 }, // NE
+    { y0: 316, y1: 587, top: 325, bottom: 579 }, // SE
+    { y0: 587, y1: 860, top: 597, bottom: 850 }, // NW
+    { y0: 860, y1: 1254, top: 871, bottom: 1126 }, // SW
+  ],
+};
+
 export interface ElfDirection {
   id: ElfDirectionId;
   label: string;
@@ -164,9 +190,21 @@ const FIRE_DIRECTIONS: ElfDirection[] = atlas({
   SW: { sheet: FIRE_SHEET_2, row: 1 },
 });
 
+const LIGHTNING_DIRECTIONS: ElfDirection[] = atlas({
+  S: { sheet: LIGHTNING_SHEET_1, row: 0 },
+  SE: { sheet: LIGHTNING_SHEET_2, row: 1 },
+  E: { sheet: LIGHTNING_SHEET_1, row: 1 },
+  NE: { sheet: LIGHTNING_SHEET_2, row: 0 },
+  N: { sheet: LIGHTNING_SHEET_1, row: 3 },
+  NW: { sheet: LIGHTNING_SHEET_2, row: 2 },
+  W: { sheet: LIGHTNING_SHEET_1, row: 2 },
+  SW: { sheet: LIGHTNING_SHEET_2, row: 3 },
+});
+
 const ATLASES: Record<ElfSpriteVariant, ElfDirection[]> = {
   fire: FIRE_DIRECTIONS,
   ice: ICE_DIRECTIONS,
+  lightning: LIGHTNING_DIRECTIONS,
 };
 
 export function elfDirections(variant: ElfSpriteVariant): ElfDirection[] {

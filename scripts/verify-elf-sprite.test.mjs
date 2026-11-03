@@ -1,5 +1,5 @@
 // Structural check for the elf sprite atlases in src/lib/elf-sprite.ts:
-// each character variant with sheets (fire, ice) must cover all 8 facing
+// each character variant with sheets (fire, ice, lightning) must cover all 8 facing
 // directions exactly once, and every sheet's row bands must tile the real
 // PNG (dimensions read from its IHDR) with content extents inside the band.
 // Run with: npm test
@@ -57,8 +57,8 @@ for (const m of source.matchAll(
 const DIRECTION_IDS = ["S", "SE", "E", "NE", "N", "NW", "W", "SW"];
 
 describe("elf-sprite atlases", () => {
-  it("imports both sheet parts for fire and ice, all present on disk", () => {
-    for (const variant of ["fire", "ice"]) {
+  it("imports both sheet parts for fire, ice, and lightning, all present on disk", () => {
+    for (const variant of ["fire", "ice", "lightning"]) {
       for (const part of [1, 2]) {
         const hit = Object.values(imports).find(
           (i) => i.variant === variant && i.part === part,
@@ -70,7 +70,7 @@ describe("elf-sprite atlases", () => {
   });
 
   it("covers all 8 directions exactly once per variant", () => {
-    for (const variant of ["fire", "ice"]) {
+    for (const variant of ["fire", "ice", "lightning"]) {
       const dirs = Object.values(sheets)
         .filter((s) => imports[s.image]?.variant === variant)
         .flatMap((s) => s.rows.map((r) => r.dir))
@@ -115,6 +115,7 @@ describe("elf-sprite atlases", () => {
 
   it("maps the selected character variant onto a sprite variant", () => {
     assert.match(source, /export function elfSpriteVariant\(/);
+    assert.match(source, /selectedId === "lightning"/);
     assert.match(source, /export function elfFrameLayout\([\s\S]*?variant/);
   });
 });
