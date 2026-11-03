@@ -4,6 +4,7 @@ import {
   FALLBACK_RATIONALE,
   fallbackName,
   generateIsland,
+  pickRandomMood,
   type IslandMoodId,
   type IslandPlan,
 } from "@/lib/island-suggest";
@@ -27,27 +28,22 @@ export interface LastSuggestion {
 }
 
 interface SuggestState {
-  mood: IslandMoodId;
   last: LastSuggestion | null;
   engineStatus: EngineStatus;
   engineNote: string | null;
   progress: DesignerProgress | null;
   thinking: boolean;
 
-  setMood: (mood: IslandMoodId) => void;
   loadEngine: () => Promise<void>;
   suggest: () => Promise<void>;
 }
 
 export const useSuggestStore = create<SuggestState>()((set, get) => ({
-  mood: "serene",
   last: null,
   engineStatus: "idle",
   engineNote: null,
   progress: null,
   thinking: false,
-
-  setMood: (mood) => set({ mood }),
 
   loadEngine: async () => {
     if (get().engineStatus === "loading" || engine) return;
@@ -77,7 +73,8 @@ export const useSuggestStore = create<SuggestState>()((set, get) => ({
   suggest: async () => {
     const requestId = ++suggestRequestId;
     const grid = useGridStore.getState();
-    const mood = get().mood;
+    // Rotate randomly between the sample scenes, never repeating the last.
+    const mood = pickRandomMood(get().last?.mood ?? null);
     const seed = Math.floor(Math.random() * 2 ** 31);
 
     let plan: IslandPlan | null = null;
@@ -97,7 +94,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => ({
     }
     if (requestId !== suggestRequestId) return; // a newer click superseded us
 
-    // Like the Demo button: the suggestion replaces the current layout.
+    // The suggestion replaces the current layout.
     const n = useGridStore.getState().n;
     useGridStore.getState().setCells(generateIsland(n, mood, plan, seed));
     set({

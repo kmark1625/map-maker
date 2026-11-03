@@ -27,6 +27,8 @@ import {
   type CellCoord,
 } from "@/lib/iso";
 import { screenToWorld, type WorldPoint } from "@/lib/geo";
+import { useSuggestStore } from "@/stores/suggest-store";
+import { DESIGNER_MODEL_LABEL } from "@/lib/webllm/designer";
 
 const TOOL_CURSORS: Record<ToolId, string> = {
   select: "cursor-default",
@@ -169,6 +171,10 @@ export default function IsoCanvas() {
   const setHover = useGridStore((s) => s.setHover);
   const setViewport = useGridStore((s) => s.setViewport);
   const fitGrid = useGridStore((s) => s.fitGrid);
+  const engineStatus = useSuggestStore((s) => s.engineStatus);
+  const engineNote = useSuggestStore((s) => s.engineNote);
+  const progress = useSuggestStore((s) => s.progress);
+  const loadEngine = useSuggestStore((s) => s.loadEngine);
 
   const drawOrder = useMemo(() => cellsInDrawOrder(n), [n]);
   const toolMeta = TOOLS.find((t) => t.id === tool);
@@ -289,6 +295,84 @@ export default function IsoCanvas() {
           {toolMeta.hint}
         </div>
       ) : null}
+
+      <div
+        onMouseDown={stop}
+        className="absolute top-3 right-3 flex flex-col items-end gap-1"
+      >
+        {engineStatus === "ready" ? (
+          <div
+            role="status"
+            title={`LLM Designer: ${DESIGNER_MODEL_LABEL}, running in a Web Worker on WebGPU.`}
+            className="flex items-center gap-1.5 rounded-md border border-teal-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm"
+          >
+            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-teal-400" />
+            Cartographer loaded
+          </div>
+        ) : engineStatus === "loading" ? (
+          <button
+            type="button"
+            disabled
+            aria-busy="true"
+            title={`LLM Designer: ${progress?.text ?? "Starting worker…"}`}
+            className="flex items-center gap-1.5 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-stone-300 shadow-sm disabled:cursor-wait"
+          >
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-full bg-amber-400 motion-safe:animate-pulse"
+            />
+            Loading Cartographer… {Math.round((progress?.progress ?? 0) * 100)}%
+          </button>
+        ) : engineStatus === "unsupported" ? (
+          <div
+            role="status"
+            title={`LLM Designer: ${engineNote ?? "WebGPU is not available in this browser."}`}
+            className="flex items-center gap-1.5 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-stone-300 shadow-sm"
+          >
+            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-stone-500" />
+            Cartographer not loaded
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void loadEngine()}
+            title={
+              engineStatus === "error" && engineNote
+                ? `LLM Designer: ${engineNote}`
+                : `Load the LLM Designer (${DESIGNER_MODEL_LABEL}). Runs in a Web Worker on WebGPU — the editor stays responsive. Cached after first download.`
+            }
+            className="flex items-center gap-1.5 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-stone-700"
+          >
+            <span
+              aria-hidden="true"
+              className={`h-2 w-2 rounded-full ${
+                engineStatus === "error" ? "bg-amber-400" : "bg-stone-500"
+              }`}
+            />
+            {engineStatus === "error" ? "Retry Cartographer" : "Load Cartographer"}
+          </button>
+        )}
+        {engineStatus === "loading" ? (
+          <div className="h-1.5 w-full overflow-hidden rounded bg-stone-700">
+            <div
+              className="h-full bg-teal-500 transition-all"
+              style={{ width: `${Math.round((progress?.progress ?? 0) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+        <span aria-live="polite" className="sr-only">
+          {engineStatus === "ready"
+            ? "Cartographer loaded"
+            : engineStatus === "loading"
+              ? "Loading Cartographer"
+              : "Cartographer not loaded"}
+        </span>
+        {engineStatus === "idle" || engineStatus === "error" ? (
+          <span className="rounded px-1 text-[10px] text-stone-400">
+            Cartographer not loaded
+          </span>
+        ) : null}
+      </div>
 
       <div
         onMouseDown={stop}

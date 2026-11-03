@@ -3,7 +3,7 @@
 // WebLLM work inside a Web Worker. Run with: npm test
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,6 +112,28 @@ describe("generateIsland", () => {
   });
 });
 
+describe("random scene rotation", () => {
+  it("picks among Serene lagoon, Rugged peaks, and Wild forest", () => {
+    assert.deepEqual(
+      isle.ISLAND_MOODS.map((m) => m.label),
+      ["Serene lagoon", "Rugged peaks", "Wild forest"],
+    );
+    assert.equal(isle.pickRandomMood(null, () => 0), "serene");
+    assert.equal(isle.pickRandomMood(null, () => 0.5), "rugged");
+    assert.equal(isle.pickRandomMood(null, () => 0.99), "wild");
+  });
+
+  it("rotates away from the previous scene", () => {
+    for (const prev of ["serene", "rugged", "wild"]) {
+      for (const roll of [0, 0.25, 0.5, 0.75, 0.99]) {
+        const next = isle.pickRandomMood(prev, () => roll);
+        assert.notEqual(next, prev);
+        assert.ok(isle.ISLAND_MOOD_MAP[next], `unknown mood ${next}`);
+      }
+    }
+  });
+});
+
 describe("LLM plan handling", () => {
   it("parses fenced JSON and clamps out-of-range numbers", () => {
     const plan = isle.parseIslandPlan(
@@ -160,11 +182,33 @@ describe("WebLLM wiring and repurpose", () => {
     );
   });
 
-  it("applies suggestions like Demo and leaves no chart-a-course behind", () => {
-    assert.ok(read("src", "stores", "grid-store.ts").includes("setCells"));
+  it("applies suggestions and leaves no Demo or chart-a-course behind", () => {
+    const gridStore = read("src", "stores", "grid-store.ts");
+    assert.ok(gridStore.includes("setCells"));
+    assert.ok(!gridStore.includes("demoGrid"), "grid-store still exposes demoGrid");
+    assert.ok(
+      gridStore.includes("buildConceptCells(DEFAULT_N)"),
+      "grid-store lost its initial concept map",
+    );
     assert.ok(read("src", "stores", "suggest-store.ts").includes("setCells(generateIsland("));
-    assert.ok(read("src", "components", "MapEditor.tsx").includes("SuggestPanel"));
-    assert.ok(read("src", "components", "GridPanel.tsx").includes("Suggest"));
+    const editor = read("src", "components", "MapEditor.tsx");
+    assert.ok(!editor.includes("SuggestPanel"), "MapEditor still renders the Suggest panel");
+    assert.ok(!editor.includes("Suggest an island"), "MapEditor still has the Suggest panel heading");
+    assert.ok(
+      !existsSync(join(root, "src", "components", "SuggestPanel.tsx")),
+      "SuggestPanel.tsx should be removed",
+    );
+    const gridPanel = read("src", "components", "GridPanel.tsx");
+    assert.ok(!gridPanel.includes("Demo"), "GridPanel still has the Demo button");
+    assert.ok(!gridPanel.includes("demoGrid"), "GridPanel still calls demoGrid");
+    assert.ok(gridPanel.includes("Suggest"));
+    for (const label of ["Serene lagoon", "Rugged peaks", "Wild forest"]) {
+      assert.ok(gridPanel.includes(label), `GridPanel Suggest help lost ${label}`);
+    }
+    assert.ok(
+      read("src", "stores", "suggest-store.ts").includes("pickRandomMood("),
+      "suggest() should rotate scenes via pickRandomMood",
+    );
     for (const [file, ...parts] of [
       ["grid-store", "src", "stores", "grid-store.ts"],
       ["IsoCanvas", "src", "components", "IsoCanvas.tsx"],

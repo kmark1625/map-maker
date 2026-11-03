@@ -1,7 +1,7 @@
 import type { TerrainId } from "@/stores/grid-store";
 
 /**
- * Pure island-layout generation for the "Suggest an island" feature.
+ * Pure island-layout generation for the Suggest button.
  * No runtime imports, so it unit-tests standalone and doubles as the
  * fallback when WebGPU / WebLLM is unavailable.
  *
@@ -51,6 +51,24 @@ export const ISLAND_MOOD_MAP: Record<IslandMoodId, IslandMood> =
     IslandMoodId,
     IslandMood
   >;
+
+/**
+ * Pick the next sample scene at random (Serene lagoon, Rugged peaks, or
+ * Wild forest), rotating away from `exclude` so back-to-back Suggest
+ * clicks never repeat the same scene.
+ */
+export function pickRandomMood(
+  exclude?: IslandMoodId | null,
+  random: () => number = Math.random,
+): IslandMoodId {
+  const pool = ISLAND_MOODS.map((m) => m.id).filter((id) => id !== exclude);
+  const choices = pool.length > 0 ? pool : ISLAND_MOODS.map((m) => m.id);
+  const index = Math.min(
+    choices.length - 1,
+    Math.max(0, Math.floor(random() * choices.length)),
+  );
+  return choices[index];
+}
 
 /** A soft circular feature in normalized 0..1 map coordinates. */
 export interface IslandBlob {
@@ -372,7 +390,7 @@ export function generateIsland(
     }
   }
 
-  // The island's sandy perimeter, like the hand-authored demo island.
+  // The island's sandy perimeter, like the hand-authored concept island.
   // Rugged islands let stone break through the rim here and there.
   for (let i = 0; i < n; i++) {
     const edge: Array<[number, number]> = [

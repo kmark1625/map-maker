@@ -106,7 +106,7 @@ const CONCEPT_LEGEND: Record<string, TerrainId> = Object.fromEntries(
   ),
 );
 
-function buildDemoCells(n: number): Record<string, TerrainId> {
+function buildConceptCells(n: number): Record<string, TerrainId> {
   const cells: Record<string, TerrainId> = {};
   for (let y = 0; y < n; y++) {
     const row =
@@ -143,7 +143,6 @@ interface GridState {
   fitGrid: (width: number, height: number) => void;
   requestFit: () => void;
   resetGrid: () => void;
-  demoGrid: () => void;
 }
 
 function sameCell(a: CellCoord | null, b: CellCoord | null): boolean {
@@ -156,7 +155,7 @@ export const useGridStore = create<GridState>()((set) => ({
   tool: "select",
   activeTerrain: "forest",
   n: DEFAULT_N,
-  cells: buildDemoCells(DEFAULT_N),
+  cells: buildConceptCells(DEFAULT_N),
   selected: null,
   hover: null,
   viewport: { x: 0, y: 0, zoom: 1 },
@@ -227,8 +226,6 @@ export const useGridStore = create<GridState>()((set) => ({
     }),
   requestFit: () => set((state) => ({ fitSignal: state.fitSignal + 1 })),
   resetGrid: () => set({ cells: {}, selected: null }),
-  demoGrid: () =>
-    set((state) => ({ cells: buildDemoCells(state.n), selected: null })),
 }));
 
 export function terrainAt(

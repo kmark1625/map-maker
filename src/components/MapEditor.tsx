@@ -5,7 +5,6 @@ import Toolbar from "@/components/Toolbar";
 import IsoCanvas from "@/components/IsoCanvas";
 import GridPanel from "@/components/GridPanel";
 import CellInspector from "@/components/CellInspector";
-import SuggestPanel from "@/components/SuggestPanel";
 import StatusBar from "@/components/StatusBar";
 import Shortcuts from "@/components/Shortcuts";
 import FlowBar from "@/components/FlowBar";
@@ -53,7 +52,6 @@ export default function MapEditor() {
           <IsoCanvas />
           <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l border-stone-300 bg-stone-100 p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <GridPanel />
-            <SuggestPanel />
             <CellInspector />
           </aside>
         </div>

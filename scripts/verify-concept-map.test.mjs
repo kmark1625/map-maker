@@ -1,5 +1,5 @@
-// Focused check for the hand-authored concept demo map consumed by
-// grid-store.ts (buildDemoCells samples src/data/concept-map.json).
+// Focused check for the hand-authored concept map consumed by
+// grid-store.ts (buildConceptCells samples src/data/concept-map.json).
 // Run with: npm test
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
