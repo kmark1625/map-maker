@@ -30,7 +30,10 @@ import {
   ELF_FRAME_MS,
   elfFrameLayout,
   elfFrameUV,
+  elfSheetUrls,
+  elfSpriteVariant,
   type ElfDirectionId,
+  type ElfSpriteVariant,
 } from "@/lib/elf-sprite";
 import type { ToolId } from "@/stores/grid-store";
 import { useCharacterStore } from "@/stores/character-store";
@@ -110,6 +113,7 @@ interface ViewApi {
   fit: () => void;
   setWander: (on: boolean) => void;
   setLighting: (preset: LightingPreset) => void;
+  setVariant: (selectedId: string) => void;
 }
 
 export default function ThreeCanvas({
@@ -128,6 +132,7 @@ export default function ThreeCanvas({
   const selected = useGridStore((s) => s.selected);
   const hover = useGridStore((s) => s.hover);
   const fitSignal = useGridStore((s) => s.fitSignal);
+  const selectedId = useCharacterStore((s) => s.selectedId);
 
   // Mount once: renderer, scene, camera, controls, lights, loop.
   // Grid contents are (re)built by the effects below from the shared store,
@@ -880,15 +885,20 @@ export default function ThreeCanvas({
     let elfDir: ElfDirectionId = "S";
     let elfFrame = 0;
     let lastFrameAt = 0;
+    // Sprite atlas follows the selected character variant; variants
+    // without sheets fall back inside elfSpriteVariant.
+    let elfVariant: ElfSpriteVariant = elfSpriteVariant(
+      useCharacterStore.getState().selectedId,
+    );
 
     // Swap the billboard to (elfDir, elfFrame): sheet texture, UV crop,
     // and per-row size/feet anchoring (rows differ across the 2 sheets).
     const applyElfFrame = () => {
       if (!elfSprite) return;
-      const layout = elfFrameLayout(elfDir, elfFrame);
+      const layout = elfFrameLayout(elfDir, elfFrame, elfVariant);
       const tex = elfTextures[layout.url];
       if (!tex) return; // sheet still loading; keep the previous frame
-      const uv = elfFrameUV(elfDir, elfFrame);
+      const uv = elfFrameUV(elfDir, elfFrame, elfVariant);
       tex.repeat.set(uv.u1 - uv.u0, uv.v1 - uv.v0);
       tex.offset.set(uv.u0, uv.v0);
       const mat = elfSprite.material as THREE.SpriteMaterial;
@@ -904,7 +914,7 @@ export default function ThreeCanvas({
     };
     const tryCreateSprite = () => {
       if (elfSprite) return;
-      const layout = elfFrameLayout(elfDir, elfFrame);
+      const layout = elfFrameLayout(elfDir, elfFrame, elfVariant);
       if (!elfTextures[layout.url]) return;
       elfSprite = new THREE.Sprite(
         new THREE.SpriteMaterial({ transparent: true, depthWrite: false }),
@@ -912,13 +922,19 @@ export default function ThreeCanvas({
       elfGroup.add(elfSprite);
       applyElfFrame();
     };
-    if (readonly) {
-      // S lives on sheet 1, SE on sheet 2: together they cover both URLs.
-      for (const id of ["S", "SE"] as const) {
-        const url = elfFrameLayout(id, 0).url;
+    // Load both sheets for the current variant (textures stay cached by
+    // URL, so switching variants back is instant). When a sheet lands,
+    // re-apply the frame so a variant swap completes.
+    const elfLoading = new Set<string>();
+    const loadElfSheets = () => {
+      if (!readonly) return;
+      for (const url of elfSheetUrls(elfVariant)) {
+        if (elfTextures[url] || elfLoading.has(url)) continue;
+        elfLoading.add(url);
         textureLoader.load(
           url,
           (tex) => {
+            elfLoading.delete(url);
             if (texturesCancelled) {
               tex.dispose();
               return;
@@ -927,12 +943,22 @@ export default function ThreeCanvas({
             tex.anisotropy = Math.min(8, maxAniso);
             elfTextures[url] = tex;
             tryCreateSprite();
+            applyElfFrame();
           },
           undefined,
-          () => {},
+          () => elfLoading.delete(url),
         );
       }
-    }
+    };
+    loadElfSheets();
+    const setVariant = (selectedId: string) => {
+      const next = elfSpriteVariant(selectedId);
+      if (next !== elfVariant) {
+        elfVariant = next;
+        applyElfFrame(); // no-op until the new sheet lands; load re-applies
+      }
+      loadElfSheets();
+    };
 
     // Screen-space facing for a grid step, from the movement vector in
     // camera space: +x is screen right, +y is toward the viewer.
@@ -1389,6 +1415,7 @@ export default function ThreeCanvas({
       fit,
       setWander,
       setLighting,
+      setVariant,
     };
 
     const ro = new ResizeObserver(() => resize());
@@ -1444,6 +1471,9 @@ export default function ThreeCanvas({
   useEffect(() => {
     if (readonly) apiRef.current?.setLighting(lighting);
   }, [lighting, readonly]);
+  useEffect(() => {
+    apiRef.current?.setVariant(selectedId);
+  }, [selectedId]);
 
   const toolMeta = TOOLS.find((t) => t.id === tool);
 

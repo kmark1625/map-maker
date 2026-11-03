@@ -9,7 +9,7 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d out --nojekyll",
     "lint": "eslint",
-    "test": "node --test scripts/verify-concept-map.test.mjs scripts/verify-floating-island.test.mjs scripts/verify-editor-tools.test.mjs",
+    "test": "node --test scripts/verify-concept-map.test.mjs scripts/verify-floating-island.test.mjs scripts/verify-editor-tools.test.mjs scripts/verify-elf-sprite.test.mjs",
     "generate:island": "node scripts/generate-floating-island.mjs"
   },
   "dependencies": {
