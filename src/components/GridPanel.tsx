@@ -88,6 +88,11 @@ export default function GridPanel() {
           <p className="text-[11px] text-stone-400 dark:text-zinc-500">Designing…</p>
         ) : last ? (
           <>
+            {last.notice ? (
+              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                {last.notice}
+              </p>
+            ) : null}
             <p className="text-xs text-stone-700 dark:text-zinc-200">
               <span className="font-semibold">{ISLAND_MOOD_MAP[last.mood].label}</span>
               {" — "}

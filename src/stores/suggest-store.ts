@@ -8,7 +8,11 @@ import {
   type IslandMoodId,
   type IslandPlan,
 } from "@/lib/island-suggest";
+import { TimeoutError } from "@/lib/timeout";
 import type { DesignerProgress } from "@/lib/webllm/designer";
+
+export const SUGGEST_TIMEOUT_NOTICE =
+  "LLM is taking longer than expected — using the default layout instead.";
 
 export type EngineStatus = "idle" | "unsupported" | "loading" | "ready" | "error";
 export type SuggestSource = "llm" | "generator";
@@ -25,6 +29,8 @@ export interface LastSuggestion {
   rationale: string;
   source: SuggestSource;
   mood: IslandMoodId;
+  /** Set when the LLM timed out and the default layout was used. */
+  notice: string | null;
 }
 
 interface SuggestState {
@@ -79,6 +85,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => ({
 
     let plan: IslandPlan | null = null;
     let source: SuggestSource = "generator";
+    let notice: string | null = null;
     if (engine && get().engineStatus === "ready") {
       set({ thinking: true });
       try {
@@ -86,8 +93,15 @@ export const useSuggestStore = create<SuggestState>()((set, get) => ({
         const terrainFn = (x: number, y: number) => terrainAt(grid.cells, x, y);
         plan = await designer.requestIslandPlan(engine, terrainFn, grid.n, mood);
         if (plan) source = "llm";
-      } catch {
+      } catch (err) {
         plan = null; // LLM hiccup: the generator below still suggests
+        // Match by name too: the designer loads as a separate chunk.
+        if (
+          err instanceof TimeoutError ||
+          (err instanceof Error && err.name === "TimeoutError")
+        ) {
+          notice = SUGGEST_TIMEOUT_NOTICE;
+        }
       } finally {
         if (requestId === suggestRequestId) set({ thinking: false });
       }
@@ -103,6 +117,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => ({
         rationale: plan?.rationale ?? FALLBACK_RATIONALE[mood],
         source,
         mood,
+        notice,
       },
     });
   },

@@ -160,6 +160,49 @@ describe("LLM plan handling", () => {
   });
 });
 
+describe("Suggest timeout fallback", () => {
+  it("withTimeout resolves fast work and rejects slow work with TimeoutError", async () => {
+    const { outputText: timeoutJs } = ts.transpileModule(read("src", "lib", "timeout.ts"), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    });
+    const timeoutFile = join(mkdtempSync(join(tmpdir(), "timeout-")), "timeout.mjs");
+    writeFileSync(timeoutFile, timeoutJs);
+    const timeout = await import(pathToFileURL(timeoutFile).href);
+
+    assert.equal(await timeout.withTimeout(Promise.resolve("plan"), 50), "plan");
+
+    let interrupted = 0;
+    const slow = new Promise((resolve) => setTimeout(() => resolve("late"), 200));
+    await assert.rejects(
+      timeout.withTimeout(slow, 10, () => interrupted++),
+      (err) => err instanceof timeout.TimeoutError,
+    );
+    assert.equal(interrupted, 1, "onTimeout should fire once so generation can be interrupted");
+    // Let the slow promise settle; its late result must not surface.
+    assert.equal(await slow, "late");
+  });
+
+  it("caps the LLM suggest at ~5s, interrupts it, and falls back with a notice", () => {
+    const designer = read("src", "lib", "webllm", "designer.ts");
+    assert.ok(designer.includes("SUGGEST_TIMEOUT_MS = 5_000"), "designer should cap a suggest at 5s");
+    assert.ok(designer.includes("withTimeout("), "designer should race the completion against the timeout");
+    assert.ok(designer.includes("interruptGenerate"), "timed-out generation must be interrupted, not left running");
+    assert.ok(!designer.includes("60_000"), "the old 60s ceiling should be gone");
+    assert.ok(
+      designer.includes("Qwen2.5-0.5B-Instruct-q4f32_1-MLC"),
+      "designer should use the smaller/faster model for cold-cache loads",
+    );
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(store.includes("TimeoutError"), "store should distinguish a timeout from other LLM failures");
+    assert.ok(
+      store.includes("LLM is taking longer than expected"),
+      "store should record the timeout fallback notice",
+    );
+    const gridPanel = read("src", "components", "GridPanel.tsx");
+    assert.ok(gridPanel.includes("last.notice"), "GridPanel should render the fallback notice");
+  });
+});
+
 describe("WebLLM wiring and repurpose", () => {
   it("runs the designer engine in a Web Worker, lazily", () => {
     const worker = read("src", "lib", "webllm", "worker.ts");
