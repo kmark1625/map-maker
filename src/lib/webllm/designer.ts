@@ -71,6 +71,8 @@ type Engine = Awaited<
 >;
 
 let enginePromise: Promise<Engine> | null = null;
+/** Worker backing the current engine, kept so unload can terminate it. */
+let engineWorker: Worker | null = null;
 
 /**
  * Load (once) the WebLLM engine inside a dedicated Web Worker. The
@@ -86,6 +88,7 @@ export function loadDesigner(
       const worker = new Worker(new URL("./worker.ts", import.meta.url), {
         type: "module",
       });
+      engineWorker = worker;
       return webllm.CreateWebWorkerMLCEngine(worker, model, {
         initProgressCallback: (report) =>
           onProgress({ progress: report.progress, text: report.text }),
@@ -108,6 +111,30 @@ export function loadDesigner(
     throw err;
   });
   return enginePromise;
+}
+
+/**
+ * Unload the designer model and release its GPU/worker resources.
+ * Clears the cached engine first so a later loadDesigner() builds a
+ * fresh worker + engine instead of reviving the unloaded one.
+ * Never throws: the caller has already fallen back to the generator.
+ */
+export async function unloadDesigner(engine: Engine): Promise<void> {
+  enginePromise = null;
+  const worker = engineWorker;
+  engineWorker = null;
+  try {
+    engine.interruptGenerate();
+  } catch {
+    // Already idle/stopped; unload below is still safe.
+  }
+  try {
+    await engine.unload();
+  } catch {
+    // Best-effort teardown; terminating the worker frees the rest.
+  } finally {
+    worker?.terminate();
+  }
 }
 
 /**
@@ -136,19 +163,13 @@ async function warmUpDesigner(engine: Engine): Promise<void> {
  *  lot by GPU, so a slow plan should never block the editor for long. */
 export const SUGGEST_TIMEOUT_MS = 10_000;
 
-/** Background prefetch gets longer because it does not block a click.
- *  This gives slower GPUs a chance to finish a plan before it is
- *  needed instead of repeatedly discarding work at the live limit. */
-export const PREFETCH_TIMEOUT_MS = 30_000;
-
 /** Ask the loaded LLM for an island plan. Throws TimeoutError after
- *  `timeoutMs` (interrupting generation so the worker is free for the
- *  next request); returns null when the reply has no usable plan. */
+ *  SUGGEST_TIMEOUT_MS (interrupting generation so the worker is free
+ *  for the next request); returns null when the reply has no usable plan. */
 export async function requestIslandPlan(
   engine: Engine,
   n: number,
   mood: IslandMoodId,
-  timeoutMs: number = SUGGEST_TIMEOUT_MS,
 ): Promise<IslandPlan | null> {
   const started = performance.now();
   const completion = engine.chat.completions.create({
@@ -163,7 +184,7 @@ export async function requestIslandPlan(
     // case; 128 bounds a runaway generation well inside the timeout.
     max_tokens: 128,
   });
-  const reply = await withTimeout(completion, timeoutMs, () => {
+  const reply = await withTimeout(completion, SUGGEST_TIMEOUT_MS, () => {
     void engine.interruptGenerate();
   });
   const usage = reply.usage

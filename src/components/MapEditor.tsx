@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { useSuggestStore } from "@/stores/suggest-store";
 import Toolbar from "@/components/Toolbar";
 import IsoCanvas from "@/components/IsoCanvas";
 import GridPanel from "@/components/GridPanel";
@@ -11,6 +13,15 @@ import FlowBar from "@/components/FlowBar";
 import "@/lib/debug-grid";
 
 export default function MapEditor() {
+  const autoLoadEngine = useSuggestStore((s) => s.autoLoadEngine);
+
+  // Opening the editor starts loading the Cartographer by default
+  // (no-op if already loading/ready, unsupported, errored, or
+  // unloaded earlier this session).
+  useEffect(() => {
+    void autoLoadEngine();
+  }, [autoLoadEngine]);
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <FlowBar backHref="/select" backLabel="Characters" currentStep={2} />

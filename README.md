@@ -22,16 +22,21 @@ The app walks through three steps:
 
 The editor's **Suggest** button generates a complete island in one of
 three moods — Serene lagoon, Rugged peaks, or Wild forest. By default it
-uses a built-in procedural generator. Loading the optional
-**Cartographer** instead runs a small LLM (Qwen2.5 0.5B via WebLLM)
-entirely in your browser on WebGPU to design the layout — no server or
-API key involved. Once loaded, it pre-designs one layout in the
-background (with up to 30 seconds to finish) so Suggest usually
-applies instantly; resizing the grid discards that pre-designed
-layout and pre-designs at the new size. A Suggest click waits at
-most 10 seconds for the LLM before falling back to the procedural
-generator and saying so; a background pre-design may keep running
-for its full 30-second budget even when a click has fallen back.
+uses a built-in procedural generator. The **Cartographer** instead
+runs a small LLM (Qwen2.5 0.5B via WebLLM) entirely in your browser
+on WebGPU to design the layout — no server or API key involved. It
+starts loading automatically when you open the editor; clicking
+the "Cartographer loaded" badge unloads it again (it then stays
+unloaded until you load it again). The LLM runs only when you
+click Suggest — a
+loaded Cartographer does no background work while you edit. A
+Suggest click waits at most 10 seconds for the LLM before falling
+back to the procedural generator and saying so. If three Suggest
+clicks in a row fail to get a usable LLM plan
+(timeout, error, or unusable reply), the Cartographer is unloaded
+and Suggest returns to the default generator-only behavior; the
+editor says so when that happens, and the Cartographer can be
+loaded again to retry.
 
 ## Getting started
 

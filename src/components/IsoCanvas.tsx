@@ -175,6 +175,7 @@ export default function IsoCanvas() {
   const engineNote = useSuggestStore((s) => s.engineNote);
   const progress = useSuggestStore((s) => s.progress);
   const loadEngine = useSuggestStore((s) => s.loadEngine);
+  const unloadEngine = useSuggestStore((s) => s.unloadEngine);
 
   const drawOrder = useMemo(() => cellsInDrawOrder(n), [n]);
   const toolMeta = TOOLS.find((t) => t.id === tool);
@@ -301,14 +302,15 @@ export default function IsoCanvas() {
         className="absolute top-3 right-3 flex flex-col items-end gap-1"
       >
         {engineStatus === "ready" ? (
-          <div
-            role="status"
-            title={`LLM Designer: ${DESIGNER_MODEL_LABEL}, running in a Web Worker on WebGPU.`}
-            className="flex items-center gap-1.5 rounded-md border border-teal-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm"
+          <button
+            type="button"
+            onClick={unloadEngine}
+            title={`LLM Designer: ${DESIGNER_MODEL_LABEL}, running in a Web Worker on WebGPU. Click to unload the Cartographer and return to the built-in generator.`}
+            className="flex items-center gap-1.5 rounded-md border border-teal-600 bg-stone-900/90 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-stone-700"
           >
             <span aria-hidden="true" className="h-2 w-2 rounded-full bg-teal-400" />
             Cartographer loaded
-          </div>
+          </button>
         ) : engineStatus === "loading" ? (
           <button
             type="button"

@@ -4,16 +4,25 @@ import {
   FALLBACK_RATIONALE,
   fallbackName,
   generateIsland,
-  ISLAND_MOODS,
   pickRandomMood,
   type IslandMoodId,
   type IslandPlan,
 } from "@/lib/island-suggest";
-import { TimeoutError, withTimeout } from "@/lib/timeout";
+import { TimeoutError } from "@/lib/timeout";
 import type { DesignerProgress } from "@/lib/webllm/designer";
 
 export const SUGGEST_TIMEOUT_NOTICE =
   "LLM is taking longer than expected — using the default layout instead.";
+
+/** Consecutive live (Suggest-click) LLM failures that trigger an
+ *  automatic Cartographer unload. A live failure is a click with the
+ *  Cartographer ready that still falls back to the generator — it
+ *  timed out, errored, or produced no usable plan. Any click that
+ *  applies an LLM plan resets the streak. */
+export const MAX_CONSECUTIVE_LIVE_FAILURES = 3;
+
+export const SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE =
+  "Cartographer failed 3 times in a row — unloading it and falling back to the default layout generator. Load Cartographer again to retry.";
 
 export type EngineStatus = "idle" | "unsupported" | "loading" | "ready" | "error";
 export type SuggestSource = "llm" | "generator";
@@ -24,34 +33,13 @@ type Engine = Awaited<
 
 let engine: Engine | null = null;
 let suggestRequestId = 0;
-
-interface PrefetchOutcome {
-  plan: IslandPlan | null;
-  /** True when generation hit the Suggest timeout (vs other failures). */
-  timedOut: boolean;
-}
-
-/**
- * Single prefetch slot: at most one background generation exists at a
- * time. A ready plan sits here until a Suggest click consumes it —
- * no further prefetch starts while the slot is occupied. Plans are
- * prompted for a specific grid size, so the slot records its `n`;
- * changing the grid size resets the slot (see the subscription in
- * the store initializer).
- */
-type PrefetchSlot =
-  | {
-      status: "pending";
-      mood: IslandMoodId;
-      n: number;
-      promise: Promise<PrefetchOutcome>;
-    }
-  | { status: "ready"; mood: IslandMoodId; n: number; plan: IslandPlan }
-  | null;
-
-let prefetchSlot: PrefetchSlot = null;
-/** Bumped on reset so a late result from a discarded prefetch is dropped. */
-let prefetchGeneration = 0;
+/** Live Suggest failures since the last LLM success (or engine load). */
+let consecutiveLiveFailures = 0;
+/** Set by any unload (manual or after repeated failures) so the
+ *  editor's default auto-load does not immediately undo it when the
+ *  page is revisited within this app session. An explicit Load
+ *  clears it; a fresh page load resets it. */
+let unloadedThisSession = false;
 
 function isTimeoutError(err: unknown): boolean {
   // Match by name too: the designer loads as a separate chunk.
@@ -78,80 +66,67 @@ interface SuggestState {
   thinking: boolean;
 
   loadEngine: () => Promise<void>;
+  /** Default load attempt when the editor opens: only from the
+   *  never-loaded state, and never after an unload this session. */
+  autoLoadEngine: () => Promise<void>;
+  /** Manually unload the Cartographer (clicking the loaded badge). */
+  unloadEngine: () => void;
   suggest: () => Promise<void>;
 }
 
 export const useSuggestStore = create<SuggestState>()((set, get) => {
   /**
-   * Start one background plan generation for the next Suggest click.
-   * No-op while the slot is occupied (pending or ready): the current
-   * prefetched plan must be consumed (or reset) first.
+   * Unload the Cartographer and return to the default
+   * (generator-only) behavior. Used after repeated live failures
+   * (with the failure notice) and for a manual unload (no notice).
+   * State is cleared synchronously so no new LLM work can start;
+   * the actual model unload/worker teardown finishes in the
+   * background. The user can load the Cartographer again from the
+   * not-loaded state.
    */
-  const schedulePrefetch = () => {
+  const unloadCartographer = (engineNote: string | null) => {
     const currentEngine = engine;
-    if (!currentEngine || prefetchSlot) return;
-    if (get().engineStatus !== "ready") return;
-    const generation = prefetchGeneration;
-    // Rotate randomly between the sample scenes, never repeating the last.
-    const mood = pickRandomMood(get().last?.mood ?? null);
-    const n = useGridStore.getState().n;
-    const promise: Promise<PrefetchOutcome> = (async () => {
-      try {
-        const designer = await import("@/lib/webllm/designer");
-        const plan = await designer.requestIslandPlan(currentEngine, n, mood, designer.PREFETCH_TIMEOUT_MS);
-        return { plan, timedOut: false };
-      } catch (err) {
-        return { plan: null, timedOut: isTimeoutError(err) };
-      }
-    })();
-    const slot: PrefetchSlot = { status: "pending", mood, n, promise };
-    prefetchSlot = slot;
-    void promise.then(({ plan, timedOut }) => {
-      // Only settle into the slot if this prefetch is still the
-      // current one (not consumed by a click or discarded by a reset).
-      if (prefetchSlot !== slot || generation !== prefetchGeneration) return;
-      if (!plan && timedOut) {
-        console.debug("[cartographer] prefetch timed out");
-      }
-      prefetchSlot = plan ? { status: "ready", mood, n, plan } : null;
+    engine = null;
+    consecutiveLiveFailures = 0;
+    unloadedThisSession = true;
+    set({
+      engineStatus: "idle",
+      engineNote,
+      progress: null,
     });
-  };
-
-  /**
-   * Discard any pending/ready prefetched plan and prefetch a fresh
-   * one for the current grid size. A discarded in-flight generation
-   * is interrupted so the GPU is free for its replacement.
-   */
-  const resetPrefetch = () => {
-    prefetchGeneration += 1;
-    const discarded = prefetchSlot;
-    prefetchSlot = null;
-    if (discarded?.status === "pending" && engine) {
-      // Interrupt the discarded generation, then wait for it to
-      // settle before generating again so the replacement never
-      // overlaps it. (The worker engine's interrupt is fire-and-
-      // forget; the pending promise settling is the completion
-      // signal.) The generation check keeps rapid repeated resizes
-      // to a single restart.
-      try {
-        engine.interruptGenerate();
-      } catch {
-        // A failed interrupt still lets the promise settle below.
-      }
-      const generation = prefetchGeneration;
-      void discarded.promise.then(() => {
-        if (generation === prefetchGeneration) schedulePrefetch();
-      });
-    } else {
-      schedulePrefetch();
+    if (currentEngine) {
+      void import("@/lib/webllm/designer")
+        .then((designer) => designer.unloadDesigner(currentEngine))
+        .catch(() => {});
     }
   };
 
-  // Any grid size change invalidates a plan prompted for the old
-  // size, so it resets the prefetch. Subscribed once with the store.
-  useGridStore.subscribe((state, prev) => {
-    if (state.n !== prev.n) resetPrefetch();
-  });
+  /** Shared load path for the explicit Load button and auto-load. */
+  const startLoadEngine = async (): Promise<void> => {
+    if (get().engineStatus === "loading" || engine) return;
+    set({ engineStatus: "loading", engineNote: null, progress: null });
+    try {
+      // Dynamic import: WebLLM stays out of the initial bundle and SSR.
+      const designer = await import("@/lib/webllm/designer");
+      if (!(await designer.webGpuAvailable())) {
+        set({
+          engineStatus: "unsupported",
+          engineNote:
+            "WebGPU is not available in this browser, so suggestions use the built-in island generator instead.",
+        });
+        return;
+      }
+      engine = await designer.loadDesigner((progress) => set({ progress }));
+      consecutiveLiveFailures = 0; // a (re)load starts a fresh streak
+      set({ engineStatus: "ready", progress: null, engineNote: null });
+    } catch (err) {
+      set({
+        engineStatus: "error",
+        progress: null,
+        engineNote: `Designer failed to load (${err instanceof Error ? err.message : "unknown error"}). Suggestions still work with the generator.`,
+      });
+    }
+  };
 
   return {
     last: null,
@@ -161,91 +136,46 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
     thinking: false,
 
     loadEngine: async () => {
-      if (get().engineStatus === "loading" || engine) return;
-      set({ engineStatus: "loading", engineNote: null, progress: null });
-      try {
-        // Dynamic import: WebLLM stays out of the initial bundle and SSR.
-        const designer = await import("@/lib/webllm/designer");
-        if (!(await designer.webGpuAvailable())) {
-          set({
-            engineStatus: "unsupported",
-            engineNote:
-              "WebGPU is not available in this browser, so suggestions use the built-in island generator instead.",
-          });
-          return;
-        }
-        engine = await designer.loadDesigner((progress) => set({ progress }));
-        set({ engineStatus: "ready", progress: null, engineNote: null });
-        // Pre-design the first suggestion so the first Suggest is instant.
-        schedulePrefetch();
-      } catch (err) {
-        set({
-          engineStatus: "error",
-          progress: null,
-          engineNote: `Designer failed to load (${err instanceof Error ? err.message : "unknown error"}). Suggestions still work with the generator.`,
-        });
-      }
+      // Explicit load: overrides an earlier unload this session.
+      unloadedThisSession = false;
+      await startLoadEngine();
+    },
+
+    autoLoadEngine: async () => {
+      // Default attempt on editor visit only: never override an
+      // unload, and never retry states the user must act on
+      // (error/unsupported) or that are already loading/ready.
+      if (unloadedThisSession) return;
+      if (get().engineStatus !== "idle") return;
+      await startLoadEngine();
+    },
+
+    unloadEngine: () => {
+      if (!engine) return;
+      unloadCartographer(null);
     },
 
     suggest: async () => {
       const requestId = ++suggestRequestId;
       const grid = useGridStore.getState();
-      // Rotate randomly between the sample scenes, never repeating the
-      // last. A consumed prefetch overrides this with its own mood,
-      // which was picked the same way when it was scheduled.
-      const previousMood = get().last?.mood ?? null;
-      let mood = pickRandomMood(previousMood);
+      // Rotate randomly between the sample scenes, never repeating the last.
+      const mood = pickRandomMood(get().last?.mood ?? null);
       const seed = Math.floor(Math.random() * 2 ** 31);
 
       let plan: IslandPlan | null = null;
       let source: SuggestSource = "generator";
       let notice: string | null = null;
-      const engineReady = engine !== null && get().engineStatus === "ready";
-      if (engineReady && prefetchSlot && prefetchSlot.status === "ready") {
-        // Consume the prefetched plan: this click paints instantly.
-        mood = prefetchSlot.mood;
-        plan = prefetchSlot.plan;
-        source = "llm";
-        prefetchSlot = null;
-      } else if (engineReady) {
+      // No background pre-design: the LLM runs only for this click,
+      // so a loaded-but-idle Cartographer costs no GPU while editing.
+      const currentEngine = engine;
+      const engineReady =
+        currentEngine !== null && get().engineStatus === "ready";
+      if (engineReady) {
         set({ thinking: true });
         try {
-          if (prefetchSlot && prefetchSlot.status === "pending") {
-            // Join the in-flight prefetch rather than starting a
-            // second generation, but only wait the live-click budget.
-            // If that budget expires, fall back for this click while
-            // leaving the prefetch to finish within its longer
-            // background budget for a later Suggest.
-            const pending = prefetchSlot;
-            const generation = prefetchGeneration;
-            mood = pending.mood;
-            prefetchSlot = null;
-            try {
-              const designer = await import("@/lib/webllm/designer");
-              const outcome = await withTimeout(pending.promise, designer.SUGGEST_TIMEOUT_MS);
-              plan = outcome.plan;
-              if (plan) source = "llm";
-              else if (outcome.timedOut) notice = SUGGEST_TIMEOUT_NOTICE;
-            } catch (err) {
-              const restored =
-                !prefetchSlot && generation === prefetchGeneration;
-              if (restored) prefetchSlot = pending;
-              if (!isTimeoutError(err)) throw err;
-              notice = SUGGEST_TIMEOUT_NOTICE;
-              if (restored) {
-                // This fallback uses a third mood so the still-pending
-                // plan does not repeat it when consumed later.
-                mood =
-                  ISLAND_MOODS.find(
-                    ({ id }) => id !== previousMood && id !== pending.mood,
-                  )?.id ?? mood;
-              }
-            }
-          } else if (engine) {
-            const designer = await import("@/lib/webllm/designer");
-            plan = await designer.requestIslandPlan(engine, grid.n, mood);
-            if (plan) source = "llm";
-          }
+          const designer = await import("@/lib/webllm/designer");
+          plan = await designer.requestIslandPlan(currentEngine, grid.n, mood);
+          if (plan) source = "llm";
         } catch (err) {
           plan = null; // LLM hiccup: the generator below still suggests
           if (isTimeoutError(err)) notice = SUGGEST_TIMEOUT_NOTICE;
@@ -254,6 +184,24 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
         }
       }
       if (requestId !== suggestRequestId) return; // a newer click superseded us
+
+      // Track the live-call streak for this click. Applying an LLM
+      // plan resets it; falling back to the generator with the
+      // Cartographer ready counts as a live failure. At the limit,
+      // unload the Cartographer so later clicks go straight to
+      // the default generator. Skipped when the engine is gone
+      // (e.g. manually unloaded mid-click): that is not a failure.
+      if (engineReady && engine !== null) {
+        if (source === "llm") {
+          consecutiveLiveFailures = 0;
+        } else {
+          consecutiveLiveFailures += 1;
+          if (consecutiveLiveFailures >= MAX_CONSECUTIVE_LIVE_FAILURES) {
+            notice = SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE;
+            unloadCartographer(SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE);
+          }
+        }
+      }
 
       // The suggestion replaces the current layout.
       const n = useGridStore.getState().n;
@@ -267,9 +215,6 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
           notice,
         },
       });
-      // Slot is empty now (consumed, awaited, or never filled):
-      // pre-design the next suggestion in the background.
-      schedulePrefetch();
     },
   };
 });

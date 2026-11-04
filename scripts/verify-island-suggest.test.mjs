@@ -234,16 +234,12 @@ describe("Suggest timeout fallback", () => {
       "compact plan format should cap generation at 128 tokens",
     );
     assert.ok(
-      designer.includes("PREFETCH_TIMEOUT_MS = 30_000"),
-      "background prefetch should get a longer 30s timeout",
+      designer.includes("withTimeout(completion, SUGGEST_TIMEOUT_MS,"),
+      "requestIslandPlan should apply the 10s live-click timeout directly",
     );
     assert.ok(
-      designer.includes("timeoutMs: number = SUGGEST_TIMEOUT_MS"),
-      "requestIslandPlan should default to the 10s live-click timeout",
-    );
-    assert.ok(
-      designer.includes("withTimeout(completion, timeoutMs,"),
-      "requestIslandPlan should apply the caller-provided timeout",
+      !designer.includes("PREFETCH_TIMEOUT_MS"),
+      "the 30s background-prefetch timeout should be gone with the prefetch",
     );
     const store = read("src", "stores", "suggest-store.ts");
     assert.ok(store.includes("TimeoutError"), "store should distinguish a timeout from other LLM failures");
@@ -256,56 +252,152 @@ describe("Suggest timeout fallback", () => {
   });
 });
 
-describe("Suggest plan prefetch", () => {
-  it("keeps at most one prefetched generation and consumes it on Suggest", () => {
+describe("Suggest runs live only (no background prefetch)", () => {
+  it("starts no LLM generation outside a Suggest click", () => {
     const store = read("src", "stores", "suggest-store.ts");
-    assert.ok(store.includes("prefetchSlot"), "store should hold a single prefetch slot");
+    for (const gone of ["prefetch", "Prefetch", "schedulePrefetch", "resetPrefetch"]) {
+      assert.ok(!store.includes(gone), `store should have no ${gone} left`);
+    }
     assert.ok(
-      store.includes("if (!currentEngine || prefetchSlot) return;"),
-      "schedulePrefetch must not start while a plan is pending or ready",
+      !store.includes("useGridStore.subscribe("),
+      "resizing the grid must not trigger any LLM work",
+    );
+    // The single plan request lives in suggest(): loadEngine must
+    // stay generation-free so a loaded-but-idle Cartographer is idle.
+    const requests = store.split("requestIslandPlan(").length - 1;
+    assert.equal(requests, 1, `expected one live plan request in suggest(), got ${requests}`);
+    const loadEngineBody = store.split("const startLoadEngine")[1].split("loadEngine: async")[0];
+    assert.ok(
+      !loadEngineBody.includes("requestIslandPlan"),
+      "loading the Cartographer should not pre-design a layout",
     );
     assert.ok(
-      store.includes('prefetchSlot.status === "ready"'),
-      "Suggest should consume the ready prefetched plan",
+      store.includes("designer.requestIslandPlan(currentEngine, grid.n, mood)"),
+      "Suggest should request its plan live, for the current grid size and mood",
+    );
+    const designer = read("src", "lib", "webllm", "designer.ts");
+    assert.ok(
+      !/prefetch/i.test(designer),
+      "designer should have no prefetch timeout/config left",
+    );
+  });
+});
+
+describe("Cartographer unload after repeated live failures", () => {
+  it("unloads after 3 consecutive live failures, notifies, and falls back to default", () => {
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(
+      store.includes("MAX_CONSECUTIVE_LIVE_FAILURES = 3"),
+      "store should cap the consecutive live-failure streak at 3",
     );
     assert.ok(
-      store.includes('prefetchSlot.status === "pending"'),
-      "Suggest should await the in-flight prefetch instead of starting a second generation",
-    );
-    const schedules = store.split("schedulePrefetch()").length - 1;
-    assert.ok(
-      schedules >= 3,
-      `prefetch should be kicked off at load, after Suggest, and after reset (got ${schedules} calls)`,
+      store.includes("consecutiveLiveFailures += 1"),
+      "a Suggest click that falls back with the Cartographer ready should count as a live failure",
     );
     assert.ok(
-      store.includes(
-        "designer.requestIslandPlan(currentEngine, n, mood, designer.PREFETCH_TIMEOUT_MS)",
-      ),
-      "prefetch should request its plan with the 30s prefetch timeout",
+      store.includes("consecutiveLiveFailures >= MAX_CONSECUTIVE_LIVE_FAILURES"),
+      "reaching the streak limit should trigger the unload",
     );
     assert.ok(
-      store.includes("withTimeout(pending.promise, designer.SUGGEST_TIMEOUT_MS)"),
-      "a click should wait at most the 10s live timeout for an in-flight prefetch",
+      store.includes('if (source === "llm")') &&
+        store.includes("consecutiveLiveFailures = 0"),
+      "applying an LLM plan (and loading the engine) should reset the streak",
     );
     assert.ok(
-      store.includes("prefetchSlot = pending;"),
-      "a click that stops waiting should leave the prefetch running for a later Suggest",
+      store.includes("Cartographer failed 3 times in a row") &&
+        store.includes("unloading it") &&
+        store.includes("falling back to the default"),
+      "the user notice should report the failure, the unload, and the fallback to default behavior",
+    );
+    assert.ok(
+      store.includes("notice = SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE"),
+      "the unload notice should ride on the suggestion so GridPanel renders it",
+    );
+    assert.ok(
+      store.includes("engine = null") && store.includes('engineStatus: "idle"'),
+      "unload should clear the engine and return to the not-loaded default state",
+    );
+    assert.ok(
+      store.includes("unloadDesigner(currentEngine)"),
+      "unload should tear down the designer engine/worker",
+    );
+    // Only the live click counts: the streak increments once, in
+    // suggest(), guarded by the engine having been ready.
+    const increments = store.split("consecutiveLiveFailures += 1").length - 1;
+    assert.equal(increments, 1, `streak should increment in exactly one place, got ${increments}`);
+    assert.ok(
+      store.includes("if (engineReady && engine !== null) {"),
+      "generator-only clicks (Cartographer not loaded or manually unloaded mid-click) must not touch the streak",
     );
   });
 
-  it("resets the prefetch on any grid size change", () => {
+  it("designer unload releases the model and lets a later load start fresh", () => {
+    const designer = read("src", "lib", "webllm", "designer.ts");
+    assert.ok(designer.includes("unloadDesigner"), "designer should expose an unload helper");
+    assert.ok(designer.includes("engine.unload()"), "unload should release the loaded model");
+    assert.ok(
+      designer.includes("worker?.terminate()"),
+      "unload should terminate the designer worker",
+    );
+    const unloadBody = designer.split("export async function unloadDesigner")[1];
+    assert.ok(
+      unloadBody.includes("enginePromise = null"),
+      "unload must clear the cached engine so reloading builds a fresh one",
+    );
+  });
+});
+
+describe("Cartographer auto-load and manual unload", () => {
+  it("attempts to load by default when the editor page opens", () => {
+    const editor = read("src", "components", "MapEditor.tsx");
+    assert.ok(editor.includes("useEffect"), "editor should auto-load from a mount effect");
+    assert.ok(
+      editor.includes("autoLoadEngine"),
+      "editor should trigger the default Cartographer load attempt on visit",
+    );
     const store = read("src", "stores", "suggest-store.ts");
     assert.ok(
-      store.includes("useGridStore.subscribe("),
-      "store should watch grid-size changes",
+      store.includes("autoLoadEngine: async"),
+      "store should expose a dedicated auto-load action",
     );
     assert.ok(
-      store.includes("state.n !== prev.n"),
-      "any grid size change should reset the prefetch",
+      store.includes('get().engineStatus !== "idle"'),
+      "auto-load should only attempt from the never-loaded state (no retrying error/unsupported/ready)",
     );
     assert.ok(
-      store.includes("resetPrefetch"),
-      "store should reset (discard + re-prefetch) on resize",
+      store.includes("unloadedThisSession"),
+      "auto-load must not undo an unload when the editor is revisited in the same session",
+    );
+    assert.ok(
+      store.includes("unloadedThisSession = false"),
+      "an explicit Load should re-enable loading after an unload",
+    );
+  });
+
+  it("clicking the loaded Cartographer badge unloads it", () => {
+    const iso = read("src", "components", "IsoCanvas.tsx");
+    assert.ok(
+      iso.includes("unloadEngine"),
+      "IsoCanvas should wire the loaded badge to the unload action",
+    );
+    const readyBadge = iso.split('engineStatus === "ready"')[1].split("Cartographer loaded")[0];
+    assert.ok(
+      readyBadge.includes("<button") && readyBadge.includes("onClick={unloadEngine}"),
+      "the loaded badge should be a click-to-unload button",
+    );
+    assert.ok(
+      readyBadge.includes("Click to unload"),
+      "the loaded badge tooltip should say clicking unloads it",
+    );
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(store.includes("unloadEngine: () =>"), "store should expose a manual unload action");
+    assert.ok(
+      store.includes("unloadCartographer(null)"),
+      "a manual unload should not carry the 3-failure notice",
+    );
+    assert.ok(
+      store.includes("unloadCartographer(SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE)"),
+      "the 3-failure unload should still carry its notice",
     );
   });
 });
