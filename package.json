@@ -9,8 +9,7 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d out --nojekyll",
     "lint": "eslint",
-    "test": "node --test scripts/verify-concept-map.test.mjs scripts/verify-floating-island.test.mjs scripts/verify-editor-tools.test.mjs scripts/verify-elf-sprite.test.mjs scripts/verify-character-variants.test.mjs scripts/verify-island-suggest.test.mjs",
-    "generate:island": "node scripts/generate-floating-island.mjs"
+    "test": "node --test scripts/verify-concept-map.test.mjs scripts/verify-floating-island.test.mjs scripts/verify-editor-tools.test.mjs scripts/verify-elf-sprite.test.mjs scripts/verify-character-variants.test.mjs scripts/verify-island-suggest.test.mjs"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.87",

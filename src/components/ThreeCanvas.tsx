@@ -21,9 +21,8 @@ import cliffLipTile from "@/app/assets/images/side_tiles/cliff_with_grass_lip.we
 import bareRockTile from "@/app/assets/images/side_tiles/bare_cliff_rock.webp";
 import underbellyTile from "@/app/assets/images/side_tiles/deep_underbelly_rock.webp";
 import {
-  ISLAND_D,
   ISLAND_H,
-  ISLAND_W,
+  generateIslandVolume,
   isIslandSolid,
 } from "@/data/floating-island";
 import {
@@ -732,17 +731,13 @@ export default function ThreeCanvas({
         addMist(dioramaGroup, p.x + CUBE * 0.5, SEA_Y + CUBE * 0.7, rimZ + CUBE * 0.4, CUBE * 1.5, 0.3);
       }
       // 4. Cliff dressing: moss + vines on the upper ring, corner crystals.
-      const ox = Math.floor((n - ISLAND_W) / 2);
-      const oy = Math.floor((n - ISLAND_D) / 2);
-      for (let y = 0; y < ISLAND_D; y++) for (let x = 0; x < ISLAND_W; x++) {
-        if (!isIslandSolid(x, y, 0)) continue;
-        const edge = !isIslandSolid(x - 1, y, 0) || !isIslandSolid(x + 1, y, 0) || !isIslandSolid(x, y - 1, 0) || !isIslandSolid(x, y + 1, 0)
-          || x === 0 || y === 0 || x === ISLAND_W - 1 || y === ISLAND_D - 1;
+      // The island footprint matches the grid, so its edge is the grid edge.
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        if (!isIslandSolid(n, x, y, 0)) continue;
+        const edge = !isIslandSolid(n, x - 1, y, 0) || !isIslandSolid(n, x + 1, y, 0) || !isIslandSolid(n, x, y - 1, 0) || !isIslandSolid(n, x, y + 1, 0);
         if (!edge || cellRand(x, y, 31) < 0.62) continue;
-        const gx = x + ox, gy = y + oy;
-        if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
-        const p = cellCenter({ x: gx, y: gy }, n);
-        const southFace = gy === n - 1 || y === ISLAND_D - 1;
+        const p = cellCenter({ x, y }, n);
+        const southFace = y === n - 1;
         const mx = p.x + (cellRand(x, y, 32) - 0.5) * CUBE * 0.4;
         const mz = southFace ? p.z + CUBE * 0.52 : p.z + (cellRand(x, y, 33) - 0.5) * CUBE * 0.4;
         blobAt(dioramaGroup, dMats.moss, mx, -CUBE * (0.3 + cellRand(x, y, 34) * 1.1), mz, CUBE * (0.14 + cellRand(x, y, 35) * 0.12));
@@ -1272,21 +1267,17 @@ export default function ThreeCanvas({
       slabBase.scale.set(slabW, 1, slabW);
       islandGroup.clear();
       if (readonly) {
-        // Center the sample island under the grid, clipping to grid bounds.
-        const ox = Math.floor((nextN - ISLAND_W) / 2);
-        const oy = Math.floor((nextN - ISLAND_D) / 2);
+        // Island generated for this grid size: footprint fills the grid.
+        const islandVolume = generateIslandVolume(nextN);
         for (let z = 0; z < ISLAND_H; z++) {
-          for (let y = 0; y < ISLAND_D; y++) {
-            for (let x = 0; x < ISLAND_W; x++) {
-              if (!isIslandSolid(x, y, z)) continue;
-              const gx = x + ox;
-              const gy = y + oy;
-              if (gx < 0 || gy < 0 || gx >= nextN || gy >= nextN) continue;
+          for (let y = 0; y < nextN; y++) {
+            for (let x = 0; x < nextN; x++) {
+              if (islandVolume[z][y][x] !== 1) continue;
               const mesh = new THREE.Mesh(
                 cubeGeo,
                 islandBoxMatsByBand[islandSideBand(z)],
               );
-              const p = cellCenter({ x: gx, y: gy }, nextN);
+              const p = cellCenter({ x, y }, nextN);
               mesh.position.set(p.x, -(z * CUBE + CUBE / 2), p.z);
               mesh.receiveShadow = true;
               islandGroup.add(mesh);
