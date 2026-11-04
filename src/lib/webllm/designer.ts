@@ -1,5 +1,6 @@
 import {
   DESIGNER_SCHEMA,
+  DESIGNER_SCHEMA_COMPACT,
   DESIGNER_SYSTEM,
   buildDesignerPrompt,
   parseIslandPlan,
@@ -22,6 +23,11 @@ import { withTimeout } from "@/lib/timeout";
 export const DESIGNER_MODEL = "Qwen2.5-0.5B-Instruct-q4f32_1-MLC";
 export const DESIGNER_MODEL_FAST = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 export const DESIGNER_MODEL_LABEL = "Qwen2.5 0.5B (in-browser, ~300 MB first download)";
+
+/** Prompt + plan together stay under ~300 tokens, so a 1024-token
+ *  context (vs the model record's 4096) is ample and keeps KV-cache
+ *  memory pressure down on low-VRAM GPUs. */
+export const DESIGNER_CONTEXT_WINDOW_SIZE = 1024;
 
 export interface DesignerProgress {
   progress: number; // 0..1
@@ -89,10 +95,15 @@ export function loadDesigner(
         type: "module",
       });
       engineWorker = worker;
-      return webllm.CreateWebWorkerMLCEngine(worker, model, {
-        initProgressCallback: (report) =>
-          onProgress({ progress: report.progress, text: report.text }),
-      });
+      return webllm.CreateWebWorkerMLCEngine(
+        worker,
+        model,
+        {
+          initProgressCallback: (report) =>
+            onProgress({ progress: report.progress, text: report.text }),
+        },
+        { context_window_size: DESIGNER_CONTEXT_WINDOW_SIZE },
+      );
     };
     const picked = await pickDesignerModel();
     let engine: Engine;
@@ -163,14 +174,36 @@ async function warmUpDesigner(engine: Engine): Promise<void> {
  *  lot by GPU, so a slow plan should never block the editor for long. */
 export const SUGGEST_TIMEOUT_MS = 10_000;
 
+/** Full plan (up to 7 features) or the compact step-down (up to 4)
+ *  used once a device proves slow. See DESIGNER_SCHEMA_COMPACT. */
+export type DesignerPlanProfile = "full" | "compact";
+
+export interface IslandPlanOutcome {
+  /** Null when the reply has no usable plan. */
+  plan: IslandPlan | null;
+  /** Effective end-to-end throughput (completion tokens over the
+   *  whole request, prefill included); null when usage is absent.
+   *  The store steps down to the compact profile when this is slow. */
+  tokensPerSecond: number | null;
+}
+
+/** Token ceilings per profile: full plans need ~60 tokens typical
+ *  (~85 worst case), compact ~40 (~55 worst case). The ceilings
+ *  bound a runaway generation well inside the timeout. */
+const MAX_PLAN_TOKENS: Record<DesignerPlanProfile, number> = {
+  full: 96,
+  compact: 72,
+};
+
 /** Ask the loaded LLM for an island plan. Throws TimeoutError after
  *  SUGGEST_TIMEOUT_MS (interrupting generation so the worker is free
- *  for the next request); returns null when the reply has no usable plan. */
+ *  for the next request). */
 export async function requestIslandPlan(
   engine: Engine,
   n: number,
   mood: IslandMoodId,
-): Promise<IslandPlan | null> {
+  profile: DesignerPlanProfile = "full",
+): Promise<IslandPlanOutcome> {
   const started = performance.now();
   const completion = engine.chat.completions.create({
     messages: [
@@ -178,21 +211,28 @@ export async function requestIslandPlan(
       { role: "user", content: buildDesignerPrompt(n, mood) },
     ],
     // Grammar-constrained JSON: the model can only emit our schema.
-    response_format: { type: "json_object", schema: DESIGNER_SCHEMA },
+    response_format: {
+      type: "json_object",
+      schema: profile === "compact" ? DESIGNER_SCHEMA_COMPACT : DESIGNER_SCHEMA,
+    },
     temperature: mood === "wild" ? 0.9 : mood === "rugged" ? 0.6 : 0.4,
-    // The compact plan format needs ~80 tokens typical, ~110 worst
-    // case; 128 bounds a runaway generation well inside the timeout.
-    max_tokens: 128,
+    max_tokens: MAX_PLAN_TOKENS[profile],
   });
   const reply = await withTimeout(completion, SUGGEST_TIMEOUT_MS, () => {
     void engine.interruptGenerate();
   });
-  const usage = reply.usage
-    ? `, ${reply.usage.completion_tokens} tokens`
-    : "";
+  const elapsedMs = performance.now() - started;
+  const completionTokens = reply.usage?.completion_tokens;
+  const tokensPerSecond =
+    completionTokens && elapsedMs > 0
+      ? completionTokens / (elapsedMs / 1000)
+      : null;
   console.debug(
-    `[cartographer] plan in ${Math.round(performance.now() - started)}ms${usage}`,
+    `[cartographer] plan in ${Math.round(elapsedMs)}ms` +
+      (completionTokens
+        ? `, ${completionTokens} tokens (${tokensPerSecond?.toFixed(1)} tok/s, ${profile})`
+        : ""),
   );
   const text = reply.choices[0]?.message?.content ?? "";
-  return parseIslandPlan(text);
+  return { plan: parseIslandPlan(text), tokensPerSecond };
 }

@@ -31,7 +31,10 @@ unloaded until you load it again). The LLM runs only when you
 click Suggest — a
 loaded Cartographer does no background work while you edit. A
 Suggest click waits at most 10 seconds for the LLM before falling
-back to the procedural generator and saying so. If three Suggest
+back to the procedural generator and saying so. On slower devices
+(measured from the first click's speed, or after a timeout) it
+steps down to smaller plans — fewer features, fewer tokens to
+generate — so clicks can still land inside the timeout. If three Suggest
 clicks in a row fail to get a usable LLM plan
 (timeout, error, or unusable reply), the Cartographer is unloaded
 and Suggest returns to the default generator-only behavior; the

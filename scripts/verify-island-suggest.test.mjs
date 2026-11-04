@@ -172,16 +172,44 @@ describe("LLM plan handling", () => {
     assert.ok(prompt.length < 220, `prompt should stay tiny, got ${prompt.length} chars`);
   });
 
-  it("schema asks for compact blobs and no rationale sentence", () => {
+  it("schema asks for compact blobs and no rationale sentence or name", () => {
     const schema = JSON.parse(isle.DESIGNER_SCHEMA);
     assert.ok(!schema.required.includes("rationale"), "rationale costs decode tokens; drop it");
+    assert.ok(!("name" in schema.properties), "name costs decode tokens; the UI falls back to a per-mood name");
+    assert.ok(!schema.required.includes("name"), "name should not be required");
     assert.equal(schema.properties.lakes.maxItems, 2);
-    assert.equal(schema.properties.forests.maxItems, 4);
-    assert.equal(schema.properties.peaks.maxItems, 3);
+    assert.equal(schema.properties.forests.maxItems, 3);
+    assert.equal(schema.properties.peaks.maxItems, 2);
     assert.equal(schema.properties.lakes.items.items.type, "integer");
     assert.equal(schema.properties.lakes.items.maxItems, 3);
     assert.ok(!isle.DESIGNER_SYSTEM.includes('"cx"'), "system prompt should teach the array form");
     assert.ok(isle.DESIGNER_SYSTEM.includes("[50,48,18]"), "system prompt should show a compact example");
+    assert.ok(!isle.DESIGNER_SYSTEM.includes("Stillwater"), "system example should not teach emitting a name");
+  });
+
+  it("compact step-down schema allows fewer features, and the parser caps match", () => {
+    const compact = JSON.parse(isle.DESIGNER_SCHEMA_COMPACT);
+    assert.equal(compact.properties.lakes.maxItems, 1);
+    assert.equal(compact.properties.forests.maxItems, 2);
+    assert.equal(compact.properties.peaks.maxItems, 1);
+    // The parser keeps at most the full schema's counts even if a
+    // reply somehow contains more blobs.
+    const many = JSON.stringify({
+      lakes: [[10, 10, 10], [20, 20, 10], [30, 30, 10]],
+      forests: [[10, 10, 10], [20, 20, 10], [30, 30, 10], [40, 40, 10]],
+      peaks: [[10, 10, 10], [20, 20, 10], [30, 30, 10]],
+      sandRim: "wide",
+    });
+    const plan = isle.parseIslandPlan(many);
+    assert.equal(plan.lakes.length, 2);
+    assert.equal(plan.forests.length, 3);
+    assert.equal(plan.peaks.length, 2);
+    // A nameless reply (what the grammar now produces) parses fine.
+    const nameless = isle.parseIslandPlan(
+      '{"lakes":[[50,48,18]],"forests":[],"peaks":[],"sandRim":"wide"}',
+    );
+    assert.ok(nameless, "nameless plan should parse");
+    assert.equal(nameless.name, undefined);
   });
 });
 
@@ -230,8 +258,12 @@ describe("Suggest timeout fallback", () => {
       "engine should warm up at load so the first Suggest skips shader/grammar compile",
     );
     assert.ok(
-      designer.includes("max_tokens: 128"),
-      "compact plan format should cap generation at 128 tokens",
+      designer.includes("full: 96") && designer.includes("max_tokens: MAX_PLAN_TOKENS[profile]"),
+      "full plans should cap generation at 96 tokens (compact lower still)",
+    );
+    assert.ok(
+      !designer.includes("max_tokens: 128"),
+      "the old 128-token ceiling should be gone with the smaller plan format",
     );
     assert.ok(
       designer.includes("withTimeout(completion, SUGGEST_TIMEOUT_MS,"),
@@ -272,13 +304,50 @@ describe("Suggest runs live only (no background prefetch)", () => {
       "loading the Cartographer should not pre-design a layout",
     );
     assert.ok(
-      store.includes("designer.requestIslandPlan(currentEngine, grid.n, mood)"),
+      store.includes("designer.requestIslandPlan(") && store.includes("requestedProfile"),
       "Suggest should request its plan live, for the current grid size and mood",
     );
     const designer = read("src", "lib", "webllm", "designer.ts");
     assert.ok(
       !/prefetch/i.test(designer),
       "designer should have no prefetch timeout/config left",
+    );
+  });
+});
+
+describe("Slow-device step-down and designer efficiency", () => {
+  it("measures tok/s and steps down to compact plans on slow devices", () => {
+    const designer = read("src", "lib", "webllm", "designer.ts");
+    assert.ok(
+      designer.includes("tokensPerSecond"),
+      "requestIslandPlan should report effective throughput for the step-down decision",
+    );
+    assert.ok(
+      designer.includes("DESIGNER_SCHEMA_COMPACT") && designer.includes("compact: 72"),
+      "compact profile should use the fewer-features schema and a lower token ceiling",
+    );
+    assert.ok(
+      designer.includes("context_window_size: DESIGNER_CONTEXT_WINDOW_SIZE") &&
+        designer.includes("DESIGNER_CONTEXT_WINDOW_SIZE = 1024"),
+      "engine should run with a 1024-token context to limit KV memory pressure",
+    );
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(
+      store.includes("SLOW_TOKENS_PER_SECOND = 15"),
+      "store should define the slow-device throughput threshold",
+    );
+    assert.ok(
+      store.includes("outcome.tokensPerSecond < SLOW_TOKENS_PER_SECOND") &&
+        store.includes('planProfile = "compact"'),
+      "a slow full-profile call should step later clicks down to compact plans",
+    );
+    assert.ok(
+      store.includes('if (requestedProfile === "full") planProfile = "compact";'),
+      "a full-profile timeout should step down immediately for the next click",
+    );
+    assert.ok(
+      store.includes('planProfile = "full"'),
+      "(re)loading/unloading should reset the profile so speed is re-measured",
     );
   });
 });

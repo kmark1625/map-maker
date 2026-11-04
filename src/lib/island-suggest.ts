@@ -229,8 +229,8 @@ export function parseIslandPlan(text: string): IslandPlan | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
   const lakes = sanitizeBlobs(obj.lakes, 2);
-  const forests = sanitizeBlobs(obj.forests, 4);
-  const peaks = sanitizeBlobs(obj.peaks, 3);
+  const forests = sanitizeBlobs(obj.forests, 3);
+  const peaks = sanitizeBlobs(obj.peaks, 2);
   if (lakes.length + forests.length + peaks.length === 0) return null;
   const sandRim: SandRim =
     obj.sandRim === "none" || obj.sandRim === "wide" ? obj.sandRim : "narrow";
@@ -249,16 +249,18 @@ export function parseIslandPlan(text: string): IslandPlan | null {
 // format is built to be emitted in as few tokens as possible: features
 // are [cx, cy, r] integer percents (48 costs one token where 0.48
 // costs three, and an array drops the per-blob object keys), and the
-// model no longer writes a rationale sentence (the UI falls back to
-// the per-mood line). A typical plan decodes in ~80 tokens, down
-// from ~190 for the old {"cx": 0.48, ...} object form.
+// model writes neither a rationale sentence nor an island name (the
+// UI falls back to the per-mood line and name). A typical plan
+// decodes in ~60 tokens, down from ~190 for the old
+// {"cx": 0.48, ...} object form. The parser still accepts a name
+// if one appears; the grammar below just never asks for it.
 export const DESIGNER_SYSTEM =
   "You place circular features to design a square island for a map editor. " +
   "Each feature is [cx, cy, r] in percents of the map size: cx, cy run 0-100 from the top-left, " +
   "r is the radius percent (5 pond, 20 large lake or range). Choose lakes (water), forests, " +
-  'peaks (stone), sandRim ("none", "narrow", or "wide") for sandy shores, and a short island name. ' +
+  'peaks (stone), and sandRim ("none", "narrow", or "wide") for sandy shores. ' +
   "Leave some open grass. " +
-  'Example: {"name":"Stillwater","lakes":[[50,48,18]],"forests":[[24,26,14]],"peaks":[],"sandRim":"wide"}';
+  'Example: {"lakes":[[50,48,18]],"forests":[[24,26,14]],"peaks":[],"sandRim":"wide"}';
 
 // No minItems: stick to schema keywords the previous (working)
 // grammar already used. Short arrays parse to NaN and are dropped.
@@ -268,17 +270,25 @@ const BLOB_SCHEMA = {
   maxItems: 3,
 };
 
-export const DESIGNER_SCHEMA = JSON.stringify({
-  type: "object",
-  properties: {
-    name: { type: "string" },
-    lakes: { type: "array", items: BLOB_SCHEMA, maxItems: 2 },
-    forests: { type: "array", items: BLOB_SCHEMA, maxItems: 4 },
-    peaks: { type: "array", items: BLOB_SCHEMA, maxItems: 3 },
-    sandRim: { type: "string", enum: ["none", "narrow", "wide"] },
-  },
-  required: ["name", "lakes", "forests", "peaks", "sandRim"],
-});
+function designerSchema(lakes: number, forests: number, peaks: number): string {
+  return JSON.stringify({
+    type: "object",
+    properties: {
+      lakes: { type: "array", items: BLOB_SCHEMA, maxItems: lakes },
+      forests: { type: "array", items: BLOB_SCHEMA, maxItems: forests },
+      peaks: { type: "array", items: BLOB_SCHEMA, maxItems: peaks },
+      sandRim: { type: "string", enum: ["none", "narrow", "wide"] },
+    },
+    required: ["lakes", "forests", "peaks", "sandRim"],
+  });
+}
+
+export const DESIGNER_SCHEMA = designerSchema(2, 3, 2);
+
+/** Step-down for slow devices: at most 4 features total (vs 7), so a
+ *  plan decodes in roughly half the tokens and can still land inside
+ *  the Suggest timeout on a weak GPU. */
+export const DESIGNER_SCHEMA_COMPACT = designerSchema(1, 2, 1);
 
 export function buildDesignerPrompt(n: number, mood: IslandMoodId): string {
   // No dump of the current grid: the designer is told to design

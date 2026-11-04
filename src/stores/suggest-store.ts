@@ -9,7 +9,10 @@ import {
   type IslandPlan,
 } from "@/lib/island-suggest";
 import { TimeoutError } from "@/lib/timeout";
-import type { DesignerProgress } from "@/lib/webllm/designer";
+import type {
+  DesignerPlanProfile,
+  DesignerProgress,
+} from "@/lib/webllm/designer";
 
 export const SUGGEST_TIMEOUT_NOTICE =
   "LLM is taking longer than expected — using the default layout instead.";
@@ -20,6 +23,12 @@ export const SUGGEST_TIMEOUT_NOTICE =
  *  timed out, errored, or produced no usable plan. Any click that
  *  applies an LLM plan resets the streak. */
 export const MAX_CONSECUTIVE_LIVE_FAILURES = 3;
+
+/** Effective throughput (tok/s, prefill included) below which a
+ *  full plan risks eating most of the Suggest timeout, so later
+ *  clicks step down to the compact plan profile. A full-profile
+ *  timeout steps down immediately. Sticky until the next (re)load. */
+export const SLOW_TOKENS_PER_SECOND = 15;
 
 export const SUGGEST_CARTOGRAPHER_UNLOADED_NOTICE =
   "Cartographer failed 3 times in a row — unloading it and falling back to the default layout generator. Load Cartographer again to retry.";
@@ -35,6 +44,9 @@ let engine: Engine | null = null;
 let suggestRequestId = 0;
 /** Live Suggest failures since the last LLM success (or engine load). */
 let consecutiveLiveFailures = 0;
+/** Plan size requested from the LLM; steps down to "compact" once
+ *  this device proves slow, and resets to "full" on (re)load. */
+let planProfile: DesignerPlanProfile = "full";
 /** Set by any unload (manual or after repeated failures) so the
  *  editor's default auto-load does not immediately undo it when the
  *  page is revisited within this app session. An explicit Load
@@ -88,6 +100,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
     const currentEngine = engine;
     engine = null;
     consecutiveLiveFailures = 0;
+    planProfile = "full";
     unloadedThisSession = true;
     set({
       engineStatus: "idle",
@@ -118,6 +131,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
       }
       engine = await designer.loadDesigner((progress) => set({ progress }));
       consecutiveLiveFailures = 0; // a (re)load starts a fresh streak
+      planProfile = "full"; // and re-measures device speed from scratch
       set({ engineStatus: "ready", progress: null, engineNote: null });
     } catch (err) {
       set({
@@ -172,13 +186,37 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
         currentEngine !== null && get().engineStatus === "ready";
       if (engineReady) {
         set({ thinking: true });
+        const requestedProfile = planProfile;
         try {
           const designer = await import("@/lib/webllm/designer");
-          plan = await designer.requestIslandPlan(currentEngine, grid.n, mood);
+          const outcome = await designer.requestIslandPlan(
+            currentEngine,
+            grid.n,
+            mood,
+            requestedProfile,
+          );
+          plan = outcome.plan;
           if (plan) source = "llm";
+          // Slow device: step down so later clicks decode a smaller
+          // plan instead of repeating near-timeout full plans.
+          if (
+            requestedProfile === "full" &&
+            outcome.tokensPerSecond !== null &&
+            outcome.tokensPerSecond < SLOW_TOKENS_PER_SECOND
+          ) {
+            planProfile = "compact";
+            console.debug(
+              `[cartographer] slow device (${outcome.tokensPerSecond.toFixed(1)} tok/s); stepping down to compact plans`,
+            );
+          }
         } catch (err) {
           plan = null; // LLM hiccup: the generator below still suggests
-          if (isTimeoutError(err)) notice = SUGGEST_TIMEOUT_NOTICE;
+          if (isTimeoutError(err)) {
+            notice = SUGGEST_TIMEOUT_NOTICE;
+            // A full plan could not finish in time on this device;
+            // try the smaller compact plan from the next click.
+            if (requestedProfile === "full") planProfile = "compact";
+          }
         } finally {
           if (requestId === suggestRequestId) set({ thinking: false });
         }
