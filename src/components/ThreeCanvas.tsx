@@ -1539,19 +1539,34 @@ export default function ThreeCanvas({
                 }
                 className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs shadow-sm ${
                   active
-                    ? "border-orange-600 bg-orange-600/90 font-semibold text-white"
+                    ? ability.activeClass
                     : "border-stone-600 bg-stone-900/90 text-stone-300 hover:bg-stone-700"
                 }`}
               >
-                <svg
-                  width={11}
-                  height={13}
-                  viewBox="0 0 24 28"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M12 0c1.2 4.6-.9 7.4-3.2 10.2C7 12.5 5.2 15 5.2 18.4A6.8 6.8 0 0 0 12 25.2a6.8 6.8 0 0 0 6.8-6.8c0-2-.7-3.7-1.7-5.3-.6 1.4-1.6 2.3-2.9 2.8.9-4.4-.3-10-2.2-15.9z" />
-                </svg>
+                {ability.icon === "snowflake" ? (
+                  <svg
+                    width={13}
+                    height={13}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2v20M3.3 7l17.4 10M20.7 7L3.3 17M12 2L9.5 4.5M12 2l2.5 2.5M12 22l-2.5-2.5M12 22l2.5-2.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    width={11}
+                    height={13}
+                    viewBox="0 0 24 28"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 0c1.2 4.6-.9 7.4-3.2 10.2C7 12.5 5.2 15 5.2 18.4A6.8 6.8 0 0 0 12 25.2a6.8 6.8 0 0 0 6.8-6.8c0-2-.7-3.7-1.7-5.3-.6 1.4-1.6 2.3-2.9 2.8.9-4.4-.3-10-2.2-15.9z" />
+                  </svg>
+                )}
                 {active ? ability.activeLabel : ability.label}
               </button>
             );

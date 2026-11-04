@@ -10,6 +10,11 @@ import fireWaterTile from "@/app/assets/images/tile/fire/water_flat.webp";
 import fireSandTile from "@/app/assets/images/tile/fire/sand_flat.webp";
 import fireStoneTile from "@/app/assets/images/tile/fire/stone_flat.webp";
 import fireForestTile from "@/app/assets/images/tile/fire/forest_flat.webp";
+import iceGrassTile from "@/app/assets/images/tile/ice/grass_flat.webp";
+import iceWaterTile from "@/app/assets/images/tile/ice/water_flat.webp";
+import iceSandTile from "@/app/assets/images/tile/ice/sand_flat.webp";
+import iceStoneTile from "@/app/assets/images/tile/ice/stone_flat.webp";
+import iceForestTile from "@/app/assets/images/tile/ice/forest_flat.webp";
 
 /**
  * Tile-top texture sets. Every theme must cover every terrain with the
@@ -34,6 +39,13 @@ export const TILE_TEXTURE_URLS: Record<TileThemeId, Record<TerrainId, string>> =
     stone: fireStoneTile.src,
     forest: fireForestTile.src,
   },
+  ice: {
+    grass: iceGrassTile.src,
+    water: iceWaterTile.src,
+    sand: iceSandTile.src,
+    stone: iceStoneTile.src,
+    forest: iceForestTile.src,
+  },
 };
 
 export interface TileAbility {
@@ -45,6 +57,10 @@ export interface TileAbility {
   activeLabel: string;
   /** Tooltip / accessible description. */
   title: string;
+  /** Icon shown on the button. */
+  icon: "flame" | "snowflake";
+  /** Tailwind classes for the button while the ability is active. */
+  activeClass: string;
 }
 
 /**
@@ -58,6 +74,16 @@ const TILE_ABILITIES: Partial<Record<string, TileAbility>> = {
     label: "Flame",
     activeLabel: "Flaming…",
     title: "Set every tile on the map to its fire texture",
+    icon: "flame",
+    activeClass: "border-orange-600 bg-orange-600/90 font-semibold text-white",
+  },
+  ice: {
+    theme: "ice",
+    label: "Freeze",
+    activeLabel: "Freezing…",
+    title: "Freeze every tile on the map to its ice texture",
+    icon: "snowflake",
+    activeClass: "border-sky-600 bg-sky-600/90 font-semibold text-white",
   },
 };
 
