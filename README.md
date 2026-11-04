@@ -2,8 +2,7 @@
 
 A browser-based 2.5D isometric map editor. Paint a floating island on a
 grid, then view it in 3D with an elf character wandering the terrain.
-Built with **Next.js + React + Zustand + Tailwind CSS + Three.js**, and
-exported as a static site (deployed to GitHub Pages).
+Built with **Next.js + React + Zustand + Tailwind CSS + Three.js**.
 
 ## How it works
 
@@ -12,8 +11,7 @@ The app walks through three steps:
 1. **Character select** (`/select`) — pick an Elf Archer variant: fire,
    ice, or lightning. The choice persists across visits.
 2. **Editor** (`/editor`) — paint the island on an isometric grid
-   (4×4 up to 20×20). Terrains are Grass, Water, Sand, Stone, and Forest,
-   with Select / Pan / Paint tools (shortcuts `V` / `H` / `P`).
+   (4×4 up to 20×20). Terrains are Grass, Water, Sand, Stone, and Forest.
 3. **Render** (`/render`) — the same map in a Three.js 3D view, with your
    elf free to wander it. Each elf also has an elemental ability that
    re-skins every tile: Flame (fire), Freeze (ice), or Zap (lightning).
@@ -28,18 +26,7 @@ on WebGPU to design the layout — no server or API key involved. It
 starts loading automatically when you open the editor; clicking
 the "Cartographer loaded" badge unloads it again (it then stays
 unloaded until you load it again). The LLM runs only when you
-click Suggest — a
-loaded Cartographer does no background work while you edit. A
-Suggest click waits at most 10 seconds for the LLM before falling
-back to the procedural generator and saying so. On slower devices
-(measured from the first click's speed, or after a timeout) it
-steps down to smaller plans — fewer features, fewer tokens to
-generate — so clicks can still land inside the timeout. If three Suggest
-clicks in a row fail to get a usable LLM plan
-(timeout, error, or unusable reply), the Cartographer is unloaded
-and Suggest returns to the default generator-only behavior; the
-editor says so when that happens, and the Cartographer can be
-loaded again to retry.
+click Suggest.
 
 ## Getting started
 
