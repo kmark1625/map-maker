@@ -5,17 +5,15 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   TERRAINS,
+  TERRAIN_MAP,
   TOOLS,
   terrainAt,
   useGridStore,
   type TerrainId,
+  type TileThemeId,
 } from "@/stores/grid-store";
 import { TILE_H, type CellCoord } from "@/lib/iso";
-import grassTile from "@/app/assets/images/tile/base/grass_flat.webp";
-import waterTile from "@/app/assets/images/tile/base/water_flat.webp";
-import sandTile from "@/app/assets/images/tile/base/sand_flat.webp";
-import stoneTile from "@/app/assets/images/tile/base/stone_flat.webp";
-import forestTile from "@/app/assets/images/tile/base/forest_flat.webp";
+import { TILE_TEXTURE_URLS, tileAbilityFor } from "@/lib/tile-themes";
 import sideTile from "@/app/assets/images/side_tiles/side_icy_mountain.webp";
 import cliffLipTile from "@/app/assets/images/side_tiles/cliff_with_grass_lip.webp";
 import bareRockTile from "@/app/assets/images/side_tiles/bare_cliff_rock.webp";
@@ -60,14 +58,6 @@ const ELEMENT_TRAIL: Record<string, string> = {
   lightning: "#facc15",
 };
 const FACING_ORDER = ["S", "SE", "E", "NE", "N", "NW", "W", "SW"] as const;
-
-const TILE_URLS: Record<TerrainId, string> = {
-  grass: grassTile.src,
-  water: waterTile.src,
-  sand: sandTile.src,
-  stone: stoneTile.src,
-  forest: forestTile.src,
-};
 
 // Surface cubes wear the grass-lipped cliff on their sides. The island
 // column below bands by depth: bare blue rock up top, icy strata mid,
@@ -115,6 +105,7 @@ interface ViewApi {
   setWander: (on: boolean) => void;
   setLighting: (preset: LightingPreset) => void;
   setVariant: (selectedId: string) => void;
+  setTileTheme: (theme: TileThemeId) => void;
 }
 
 export default function ThreeCanvas({
@@ -132,6 +123,8 @@ export default function ThreeCanvas({
   const selected = useGridStore((s) => s.selected);
   const hover = useGridStore((s) => s.hover);
   const fitSignal = useGridStore((s) => s.fitSignal);
+  const tileTheme = useGridStore((s) => s.tileTheme);
+  const setTileTheme = useGridStore((s) => s.setTileTheme);
   const selectedId = useCharacterStore((s) => s.selectedId);
 
   // Mount once: renderer, scene, camera, controls, lights, loop.
@@ -260,26 +253,56 @@ export default function ThreeCanvas({
         scene.background = bgTex;
       }
     }
-    for (const t of TERRAINS) {
-      textureLoader.load(
-        TILE_URLS[t.id],
-        (tex) => {
-          if (texturesCancelled) {
-            tex.dispose();
-            return;
-          }
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.anisotropy = Math.min(8, maxAniso);
-          loadedTextures.push(tex);
-          const mat = terrainTopMats[t.id];
-          mat.map = tex;
-          mat.color.set("#ffffff");
-          mat.needsUpdate = true;
-        },
-        undefined,
-        () => {},
-      );
-    }
+    // Tile themes: the base set loads up front; elemental sets (fire, …)
+    // load lazily the first time their ability is switched on. Applying a
+    // theme re-points every terrain top material at that set's texture
+    // (or its flat terrain color until the texture arrives), so every tile
+    // keeps its terrain and only the artwork changes.
+    const tileTextures = {} as Record<
+      TileThemeId,
+      Partial<Record<TerrainId, THREE.Texture>>
+    >;
+    const tileThemesRequested = new Set<TileThemeId>();
+    let activeTileTheme: TileThemeId = useGridStore.getState().tileTheme;
+    const applyTileTop = (id: TerrainId) => {
+      const mat = terrainTopMats[id];
+      const tex = tileTextures[activeTileTheme]?.[id] ?? null;
+      // Only an empty<->textured change alters the shader (USE_MAP);
+      // swapping one loaded texture for another is a uniform update.
+      const defineChanged = (mat.map === null) !== (tex === null);
+      mat.map = tex;
+      mat.color.set(tex ? "#ffffff" : TERRAIN_MAP[id].top);
+      if (defineChanged) mat.needsUpdate = true;
+    };
+    const ensureTileThemeLoaded = (theme: TileThemeId) => {
+      if (tileThemesRequested.has(theme)) return;
+      tileThemesRequested.add(theme);
+      tileTextures[theme] = {};
+      for (const t of TERRAINS) {
+        textureLoader.load(
+          TILE_TEXTURE_URLS[theme][t.id],
+          (tex) => {
+            if (texturesCancelled) {
+              tex.dispose();
+              return;
+            }
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = Math.min(8, maxAniso);
+            loadedTextures.push(tex);
+            tileTextures[theme][t.id] = tex;
+            if (activeTileTheme === theme) applyTileTop(t.id);
+          },
+          undefined,
+          () => {},
+        );
+      }
+    };
+    const applyTileTheme = (theme: TileThemeId) => {
+      activeTileTheme = theme;
+      ensureTileThemeLoaded(theme);
+      for (const t of TERRAINS) applyTileTop(t.id);
+    };
+    ensureTileThemeLoaded(activeTileTheme);
 
     const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
     // Island column materials: one side texture per depth band (top and
@@ -1409,6 +1432,7 @@ export default function ThreeCanvas({
       setWander,
       setLighting,
       setVariant,
+      setTileTheme: applyTileTheme,
     };
 
     const ro = new ResizeObserver(() => resize());
@@ -1464,6 +1488,16 @@ export default function ThreeCanvas({
   useEffect(() => {
     apiRef.current?.setVariant(selectedId);
   }, [selectedId]);
+  useEffect(() => {
+    apiRef.current?.setTileTheme(tileTheme);
+  }, [tileTheme]);
+  // An elemental tile theme belongs to its character: switching to a
+  // character without that ability restores the base textures.
+  useEffect(() => {
+    if (tileTheme !== "base" && tileAbilityFor(selectedId)?.theme !== tileTheme) {
+      setTileTheme("base");
+    }
+  }, [selectedId, tileTheme, setTileTheme]);
 
   const toolMeta = TOOLS.find((t) => t.id === tool);
 
@@ -1491,6 +1525,37 @@ export default function ThreeCanvas({
           >
             {wander ? "Wandering…" : "Wander"}
           </button>
+          {(() => {
+            const ability = tileAbilityFor(selectedId);
+            if (!ability) return null;
+            const active = tileTheme === ability.theme;
+            return (
+              <button
+                type="button"
+                title={ability.title}
+                aria-pressed={active}
+                onClick={() =>
+                  setTileTheme(active ? "base" : ability.theme)
+                }
+                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs shadow-sm ${
+                  active
+                    ? "border-orange-600 bg-orange-600/90 font-semibold text-white"
+                    : "border-stone-600 bg-stone-900/90 text-stone-300 hover:bg-stone-700"
+                }`}
+              >
+                <svg
+                  width={11}
+                  height={13}
+                  viewBox="0 0 24 28"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 0c1.2 4.6-.9 7.4-3.2 10.2C7 12.5 5.2 15 5.2 18.4A6.8 6.8 0 0 0 12 25.2a6.8 6.8 0 0 0 6.8-6.8c0-2-.7-3.7-1.7-5.3-.6 1.4-1.6 2.3-2.9 2.8.9-4.4-.3-10-2.2-15.9z" />
+                </svg>
+                {active ? ability.activeLabel : ability.label}
+              </button>
+            );
+          })()}
         </div>
       ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">

@@ -4,6 +4,8 @@ import conceptMap from "@/data/concept-map.json";
 
 export type ToolId = "select" | "pan" | "paint";
 export type TerrainId = "grass" | "water" | "sand" | "stone" | "forest";
+/** Tile-top texture sets (see lib/tile-themes.ts). */
+export type TileThemeId = "base" | "fire";
 
 export interface Terrain {
   id: TerrainId;
@@ -131,8 +133,10 @@ interface GridState {
   hover: CellCoord | null;
   viewport: Viewport;
   fitSignal: number;
+  tileTheme: TileThemeId;
 
   setTool: (tool: ToolId) => void;
+  setTileTheme: (theme: TileThemeId) => void;
   setActiveTerrain: (terrain: TerrainId) => void;
   setN: (n: number) => void;
   setCells: (cells: Record<string, TerrainId>) => void;
@@ -160,8 +164,10 @@ export const useGridStore = create<GridState>()((set) => ({
   hover: null,
   viewport: { x: 0, y: 0, zoom: 1 },
   fitSignal: 0,
+  tileTheme: "base",
 
   setTool: (tool) => set({ tool }),
+  setTileTheme: (tileTheme) => set({ tileTheme }),
   setActiveTerrain: (terrain) => set({ activeTerrain: terrain }),
   setN: (next) =>
     set((state) => {
