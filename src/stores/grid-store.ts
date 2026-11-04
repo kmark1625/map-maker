@@ -5,7 +5,7 @@ import conceptMap from "@/data/concept-map.json";
 export type ToolId = "select" | "pan" | "paint";
 export type TerrainId = "grass" | "water" | "sand" | "stone" | "forest";
 /** Tile-top texture sets (see lib/tile-themes.ts). */
-export type TileThemeId = "base" | "fire" | "ice";
+export type TileThemeId = "base" | "fire" | "ice" | "lightning";
 
 export interface Terrain {
   id: TerrainId;

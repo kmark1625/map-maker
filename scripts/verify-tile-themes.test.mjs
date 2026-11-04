@@ -1,7 +1,8 @@
 // Structural check for elemental tile themes: every theme folder covers
 // every terrain with the same filenames as base, the registry imports
-// files that exist, elemental abilities are registered for the fire
-// and ice elves, and the 3D canvas wires the ability button + theme swap.
+// files that exist, elemental abilities are registered for the fire,
+// ice, and lightning elves, and the 3D canvas wires the ability button
+// + theme swap.
 // Run with: npm test
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -23,43 +24,49 @@ assert.ok(terrainUnion, "TerrainId union not found in grid-store.ts");
 const terrains = [...terrainUnion[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
 
 describe("tile themes", () => {
-  it("fire and ice folders mirror the base filenames, one per terrain", () => {
+  it("fire, ice, and lightning folders mirror the base filenames, one per terrain", () => {
     const base = readdirSync(join(tileDir, "base")).sort();
     const fire = readdirSync(join(tileDir, "fire")).sort();
     const ice = readdirSync(join(tileDir, "ice")).sort();
+    const lightning = readdirSync(join(tileDir, "lightning")).sort();
     assert.deepEqual(fire, base);
     assert.deepEqual(ice, base);
+    assert.deepEqual(lightning, base);
     assert.deepEqual(
       base,
       terrains.map((t) => `${t}_flat.webp`).sort(),
     );
   });
 
-  it("registry imports base + fire + ice textures that all exist on disk", () => {
+  it("registry imports base + fire + ice + lightning textures that all exist on disk", () => {
     const imports = [
       ...themesSource.matchAll(/from "(@\/app\/assets\/images\/tile\/[\w/.]+)";/g),
     ].map((m) => m[1]);
-    assert.equal(imports.length, terrains.length * 3);
+    assert.equal(imports.length, terrains.length * 4);
     for (const importPath of imports) {
       const path = join(root, "src", importPath.replace("@/", ""));
       assert.ok(existsSync(path), `missing file ${path}`);
     }
   });
 
-  it("registers flame for fire and freeze for ice, each mapped to its theme", () => {
+  it("registers an ability per elf, each mapped to its theme", () => {
     const block = themesSource.match(/const TILE_ABILITIES[^=]*= \{([\s\S]*?)\n\};/);
     assert.ok(block, "TILE_ABILITIES not found in tile-themes.ts");
     const keys = [...block[1].matchAll(/(\w+): \{/g)].map((m) => m[1]);
-    assert.deepEqual(keys, ["fire", "ice"]);
+    assert.deepEqual(keys, ["fire", "ice", "lightning"]);
     assert.match(block[1], /theme: "fire"/);
     assert.match(block[1], /label: "Flame"/);
     assert.match(block[1], /theme: "ice"/);
     assert.match(block[1], /label: "Freeze"/);
-    assert.doesNotMatch(block[1], /\blightning:/);
+    assert.match(block[1], /theme: "lightning"/);
+    assert.match(block[1], /label: "Zap"/);
   });
 
   it("grid store tracks tileTheme, defaulting to base", () => {
-    assert.match(gridSource, /export type TileThemeId = "base" \| "fire" \| "ice";/);
+    assert.match(
+      gridSource,
+      /export type TileThemeId = "base" \| "fire" \| "ice" \| "lightning";/,
+    );
     assert.match(gridSource, /tileTheme: "base",/);
     assert.match(gridSource, /setTileTheme:/);
   });
@@ -71,5 +78,6 @@ describe("tile themes", () => {
     assert.match(threeSource, /aria-pressed=\{active\}/);
     assert.match(threeSource, /ability\.activeClass/);
     assert.match(threeSource, /ability\.icon === "snowflake"/);
+    assert.match(threeSource, /ability\.icon === "bolt"/);
   });
 });

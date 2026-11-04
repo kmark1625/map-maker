@@ -1543,7 +1543,17 @@ export default function ThreeCanvas({
                     : "border-stone-600 bg-stone-900/90 text-stone-300 hover:bg-stone-700"
                 }`}
               >
-                {ability.icon === "snowflake" ? (
+                {ability.icon === "bolt" ? (
+                  <svg
+                    width={11}
+                    height={13}
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />
+                  </svg>
+                ) : ability.icon === "snowflake" ? (
                   <svg
                     width={13}
                     height={13}

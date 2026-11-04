@@ -15,6 +15,11 @@ import iceWaterTile from "@/app/assets/images/tile/ice/water_flat.webp";
 import iceSandTile from "@/app/assets/images/tile/ice/sand_flat.webp";
 import iceStoneTile from "@/app/assets/images/tile/ice/stone_flat.webp";
 import iceForestTile from "@/app/assets/images/tile/ice/forest_flat.webp";
+import lightningGrassTile from "@/app/assets/images/tile/lightning/grass_flat.webp";
+import lightningWaterTile from "@/app/assets/images/tile/lightning/water_flat.webp";
+import lightningSandTile from "@/app/assets/images/tile/lightning/sand_flat.webp";
+import lightningStoneTile from "@/app/assets/images/tile/lightning/stone_flat.webp";
+import lightningForestTile from "@/app/assets/images/tile/lightning/forest_flat.webp";
 
 /**
  * Tile-top texture sets. Every theme must cover every terrain with the
@@ -46,6 +51,13 @@ export const TILE_TEXTURE_URLS: Record<TileThemeId, Record<TerrainId, string>> =
     stone: iceStoneTile.src,
     forest: iceForestTile.src,
   },
+  lightning: {
+    grass: lightningGrassTile.src,
+    water: lightningWaterTile.src,
+    sand: lightningSandTile.src,
+    stone: lightningStoneTile.src,
+    forest: lightningForestTile.src,
+  },
 };
 
 export interface TileAbility {
@@ -58,7 +70,7 @@ export interface TileAbility {
   /** Tooltip / accessible description. */
   title: string;
   /** Icon shown on the button. */
-  icon: "flame" | "snowflake";
+  icon: "flame" | "snowflake" | "bolt";
   /** Tailwind classes for the button while the ability is active. */
   activeClass: string;
 }
@@ -84,6 +96,14 @@ const TILE_ABILITIES: Partial<Record<string, TileAbility>> = {
     title: "Freeze every tile on the map to its ice texture",
     icon: "snowflake",
     activeClass: "border-sky-600 bg-sky-600/90 font-semibold text-white",
+  },
+  lightning: {
+    theme: "lightning",
+    label: "Zap",
+    activeLabel: "Zapping…",
+    title: "Set every tile on the map to its lightning texture",
+    icon: "bolt",
+    activeClass: "border-yellow-400 bg-yellow-400/90 font-semibold text-stone-900",
   },
 };
 
