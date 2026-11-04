@@ -131,18 +131,24 @@ async function warmUpDesigner(engine: Engine): Promise<void> {
   }).catch(() => {});
 }
 
-/** How long a Suggest click waits on the LLM before the caller falls
- *  back to the built-in generator. Decode speed varies a lot by GPU,
- *  so a slow plan should never block the editor. */
-export const SUGGEST_TIMEOUT_MS = 5_000;
+/** How long a Suggest click waits on a live LLM request before the
+ *  caller falls back to the built-in generator. Decode speed varies a
+ *  lot by GPU, so a slow plan should never block the editor for long. */
+export const SUGGEST_TIMEOUT_MS = 10_000;
+
+/** Background prefetch gets longer because it does not block a click.
+ *  This gives slower GPUs a chance to finish a plan before it is
+ *  needed instead of repeatedly discarding work at the live limit. */
+export const PREFETCH_TIMEOUT_MS = 30_000;
 
 /** Ask the loaded LLM for an island plan. Throws TimeoutError after
- *  SUGGEST_TIMEOUT_MS (interrupting generation so the worker is free
- *  for the next request); returns null when the reply has no usable plan. */
+ *  `timeoutMs` (interrupting generation so the worker is free for the
+ *  next request); returns null when the reply has no usable plan. */
 export async function requestIslandPlan(
   engine: Engine,
   n: number,
   mood: IslandMoodId,
+  timeoutMs: number = SUGGEST_TIMEOUT_MS,
 ): Promise<IslandPlan | null> {
   const started = performance.now();
   const completion = engine.chat.completions.create({
@@ -157,7 +163,7 @@ export async function requestIslandPlan(
     // case; 128 bounds a runaway generation well inside the timeout.
     max_tokens: 128,
   });
-  const reply = await withTimeout(completion, SUGGEST_TIMEOUT_MS, () => {
+  const reply = await withTimeout(completion, timeoutMs, () => {
     void engine.interruptGenerate();
   });
   const usage = reply.usage

@@ -4,11 +4,12 @@ import {
   FALLBACK_RATIONALE,
   fallbackName,
   generateIsland,
+  ISLAND_MOODS,
   pickRandomMood,
   type IslandMoodId,
   type IslandPlan,
 } from "@/lib/island-suggest";
-import { TimeoutError } from "@/lib/timeout";
+import { TimeoutError, withTimeout } from "@/lib/timeout";
 import type { DesignerProgress } from "@/lib/webllm/designer";
 
 export const SUGGEST_TIMEOUT_NOTICE =
@@ -97,7 +98,7 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
     const promise: Promise<PrefetchOutcome> = (async () => {
       try {
         const designer = await import("@/lib/webllm/designer");
-        const plan = await designer.requestIslandPlan(currentEngine, n, mood);
+        const plan = await designer.requestIslandPlan(currentEngine, n, mood, designer.PREFETCH_TIMEOUT_MS);
         return { plan, timedOut: false };
       } catch (err) {
         return { plan: null, timedOut: isTimeoutError(err) };
@@ -105,10 +106,13 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
     })();
     const slot: PrefetchSlot = { status: "pending", mood, n, promise };
     prefetchSlot = slot;
-    void promise.then(({ plan }) => {
+    void promise.then(({ plan, timedOut }) => {
       // Only settle into the slot if this prefetch is still the
       // current one (not consumed by a click or discarded by a reset).
       if (prefetchSlot !== slot || generation !== prefetchGeneration) return;
+      if (!plan && timedOut) {
+        console.debug("[cartographer] prefetch timed out");
+      }
       prefetchSlot = plan ? { status: "ready", mood, n, plan } : null;
     });
   };
@@ -189,7 +193,8 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
       // Rotate randomly between the sample scenes, never repeating the
       // last. A consumed prefetch overrides this with its own mood,
       // which was picked the same way when it was scheduled.
-      let mood = pickRandomMood(get().last?.mood ?? null);
+      const previousMood = get().last?.mood ?? null;
+      let mood = pickRandomMood(previousMood);
       const seed = Math.floor(Math.random() * 2 ** 31);
 
       let plan: IslandPlan | null = null;
@@ -206,15 +211,36 @@ export const useSuggestStore = create<SuggestState>()((set, get) => {
         set({ thinking: true });
         try {
           if (prefetchSlot && prefetchSlot.status === "pending") {
-            // A prefetch is already generating for this click; await
-            // it rather than starting a second generation.
+            // Join the in-flight prefetch rather than starting a
+            // second generation, but only wait the live-click budget.
+            // If that budget expires, fall back for this click while
+            // leaving the prefetch to finish within its longer
+            // background budget for a later Suggest.
             const pending = prefetchSlot;
+            const generation = prefetchGeneration;
             mood = pending.mood;
             prefetchSlot = null;
-            const outcome = await pending.promise;
-            plan = outcome.plan;
-            if (plan) source = "llm";
-            else if (outcome.timedOut) notice = SUGGEST_TIMEOUT_NOTICE;
+            try {
+              const designer = await import("@/lib/webllm/designer");
+              const outcome = await withTimeout(pending.promise, designer.SUGGEST_TIMEOUT_MS);
+              plan = outcome.plan;
+              if (plan) source = "llm";
+              else if (outcome.timedOut) notice = SUGGEST_TIMEOUT_NOTICE;
+            } catch (err) {
+              const restored =
+                !prefetchSlot && generation === prefetchGeneration;
+              if (restored) prefetchSlot = pending;
+              if (!isTimeoutError(err)) throw err;
+              notice = SUGGEST_TIMEOUT_NOTICE;
+              if (restored) {
+                // This fallback uses a third mood so the still-pending
+                // plan does not repeat it when consumed later.
+                mood =
+                  ISLAND_MOODS.find(
+                    ({ id }) => id !== previousMood && id !== pending.mood,
+                  )?.id ?? mood;
+              }
+            }
           } else if (engine) {
             const designer = await import("@/lib/webllm/designer");
             plan = await designer.requestIslandPlan(engine, grid.n, mood);

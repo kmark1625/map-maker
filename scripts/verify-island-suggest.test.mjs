@@ -207,9 +207,9 @@ describe("Suggest timeout fallback", () => {
     assert.equal(await slow, "late");
   });
 
-  it("caps the LLM suggest at ~5s, interrupts it, and falls back with a notice", () => {
+  it("caps live LLM suggests at 10s, interrupts them, and falls back with a notice", () => {
     const designer = read("src", "lib", "webllm", "designer.ts");
-    assert.ok(designer.includes("SUGGEST_TIMEOUT_MS = 5_000"), "designer should cap a suggest at 5s");
+    assert.ok(designer.includes("SUGGEST_TIMEOUT_MS = 10_000"), "designer should cap a live suggest at 10s");
     assert.ok(designer.includes("withTimeout("), "designer should race the completion against the timeout");
     assert.ok(designer.includes("interruptGenerate"), "timed-out generation must be interrupted, not left running");
     assert.ok(!designer.includes("60_000"), "the old 60s ceiling should be gone");
@@ -232,6 +232,18 @@ describe("Suggest timeout fallback", () => {
     assert.ok(
       designer.includes("max_tokens: 128"),
       "compact plan format should cap generation at 128 tokens",
+    );
+    assert.ok(
+      designer.includes("PREFETCH_TIMEOUT_MS = 30_000"),
+      "background prefetch should get a longer 30s timeout",
+    );
+    assert.ok(
+      designer.includes("timeoutMs: number = SUGGEST_TIMEOUT_MS"),
+      "requestIslandPlan should default to the 10s live-click timeout",
+    );
+    assert.ok(
+      designer.includes("withTimeout(completion, timeoutMs,"),
+      "requestIslandPlan should apply the caller-provided timeout",
     );
     const store = read("src", "stores", "suggest-store.ts");
     assert.ok(store.includes("TimeoutError"), "store should distinguish a timeout from other LLM failures");
@@ -264,6 +276,20 @@ describe("Suggest plan prefetch", () => {
     assert.ok(
       schedules >= 3,
       `prefetch should be kicked off at load, after Suggest, and after reset (got ${schedules} calls)`,
+    );
+    assert.ok(
+      store.includes(
+        "designer.requestIslandPlan(currentEngine, n, mood, designer.PREFETCH_TIMEOUT_MS)",
+      ),
+      "prefetch should request its plan with the 30s prefetch timeout",
+    );
+    assert.ok(
+      store.includes("withTimeout(pending.promise, designer.SUGGEST_TIMEOUT_MS)"),
+      "a click should wait at most the 10s live timeout for an in-flight prefetch",
+    );
+    assert.ok(
+      store.includes("prefetchSlot = pending;"),
+      "a click that stops waiting should leave the prefetch running for a later Suggest",
     );
   });
 
