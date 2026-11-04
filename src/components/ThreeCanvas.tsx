@@ -125,7 +125,6 @@ export default function ThreeCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ViewApi | null>(null);
   const [wander, setWanderState] = useState(readonly);
-  const [lighting, setLightingState] = useState<LightingPreset>("classic");
 
   const tool = useGridStore((s) => s.tool);
   const n = useGridStore((s) => s.n);
@@ -165,9 +164,10 @@ export default function ThreeCanvas({
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = readonly ? Math.PI * 0.8 : Math.PI * 0.495;
 
-    // Sample lighting test: "classic" is the original flat white rig, while
-    // "vibrant" tries a warm key + cool fill + violet under-bounce to match
-    // the saturated look of the 2.5D render. Toggled from the render view.
+    // Lighting is fixed to "classic" (the original flat white rig below).
+    // The "vibrant" preset in setLighting (warm key + cool fill + sea
+    // under-bounce, matching the 2.5D render) is kept dormant with no
+    // toggle UI, so the toggle can return later by re-adding state + buttons.
     let sunDist = 1600;
     const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65);
     scene.add(hemi);
@@ -1462,9 +1462,6 @@ export default function ThreeCanvas({
     apiRef.current?.fit();
   }, [fitSignal]);
   useEffect(() => {
-    if (readonly) apiRef.current?.setLighting(lighting);
-  }, [lighting, readonly]);
-  useEffect(() => {
     apiRef.current?.setVariant(selectedId);
   }, [selectedId]);
 
@@ -1494,28 +1491,6 @@ export default function ThreeCanvas({
           >
             {wander ? "Wandering…" : "Wander"}
           </button>
-          <div
-            role="group"
-            aria-label="Lighting preset"
-            className="flex overflow-hidden rounded-md border border-stone-600 shadow-sm"
-          >
-            {(["classic", "vibrant"] as const).map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                title={`Switch to ${preset} lighting`}
-                aria-pressed={lighting === preset}
-                onClick={() => setLightingState(preset)}
-                className={`px-2.5 py-1.5 text-xs capitalize ${
-                  lighting === preset
-                    ? "bg-amber-500/90 font-semibold text-white"
-                    : "bg-stone-900/90 text-stone-300 hover:bg-stone-700"
-                }`}
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
         </div>
       ) : toolMeta ? (
         <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-stone-600 bg-stone-900/90 px-2.5 py-1.5 text-xs text-stone-300 shadow-sm">

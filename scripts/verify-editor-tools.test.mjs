@@ -87,6 +87,45 @@ describe("3D map render controls", () => {
     assert.ok(three.includes("OrbitControls"), "ThreeCanvas lost OrbitControls");
   });
 
+  it("uses classic lighting with no lighting toggle buttons", () => {
+    const three = read("src", "components", "ThreeCanvas.tsx");
+    assert.ok(
+      !three.includes('aria-label="Lighting preset"'),
+      "ThreeCanvas still shows the lighting toggle group",
+    );
+    assert.ok(
+      !three.includes("Switch to "),
+      "ThreeCanvas still has lighting switch buttons",
+    );
+    assert.ok(
+      !three.includes("setLightingState"),
+      "ThreeCanvas still tracks a selectable lighting state",
+    );
+    // Classic rig is the scene default: flat white hemisphere + sun,
+    // with the vibrant-only fill/underglow lights off.
+    assert.ok(
+      three.includes("new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.65)"),
+      "ThreeCanvas lost the classic hemisphere light",
+    );
+    assert.ok(
+      three.includes("new THREE.DirectionalLight(0xffffff, 0.45)"),
+      "ThreeCanvas lost the classic sun light",
+    );
+    assert.ok(
+      three.includes("new THREE.DirectionalLight(0x9ecfff, 0)"),
+      "ThreeCanvas vibrant fill is not off by default",
+    );
+    assert.ok(
+      three.includes("new THREE.DirectionalLight(0x35b6e8, 0)"),
+      "ThreeCanvas vibrant underglow is not off by default",
+    );
+    // Vibrant preset stays dormant in setLighting for possible return.
+    assert.ok(
+      three.includes('preset === "vibrant"'),
+      "ThreeCanvas lost the dormant vibrant preset",
+    );
+  });
+
   it("places only the render camera 20 degrees above horizontal", () => {
     const three = read("src", "components", "ThreeCanvas.tsx");
     const elevation = three.match(/const RENDER_ELEVATION_DEG = ([\d.]+);/);
