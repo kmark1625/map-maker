@@ -152,11 +152,36 @@ describe("LLM plan handling", () => {
     );
   });
 
-  it("prompt carries the current map and the mood brief", () => {
-    const at = (x, y) => (x === 0 && y === 0 ? "water" : "grass");
-    const prompt = isle.buildDesignerPrompt(at, 4, "rugged");
-    assert.ok(prompt.includes("~..."));
+  it("parses the compact integer-percent blob arrays", () => {
+    const plan = isle.parseIslandPlan(
+      '{"name":"Stillwater","lakes":[[50,48,19]],"forests":[[24,26,15]],"peaks":[],"sandRim":"wide"}',
+    );
+    assert.deepEqual(plan.lakes, [{ cx: 0.5, cy: 0.48, r: 0.19 }]);
+    assert.deepEqual(plan.forests, [{ cx: 0.24, cy: 0.26, r: 0.15 }]);
+    assert.equal(plan.name, "Stillwater");
+    // Out-of-range percents clamp like fractions did.
+    const clamped = isle.parseIslandPlan('{"lakes":[[250,-10,90]],"forests":[],"peaks":[]}');
+    assert.deepEqual(clamped.lakes, [{ cx: 1, cy: 0, r: 0.35 }]);
+  });
+
+  it("prompt is just the size and mood brief (no grid dump to prefill)", () => {
+    const prompt = isle.buildDesignerPrompt(20, "rugged");
+    assert.ok(prompt.includes("20x20"));
     assert.ok(prompt.includes(isle.ISLAND_MOOD_MAP.rugged.brief));
+    assert.ok(!prompt.includes("\n"), "prompt should not dump grid rows");
+    assert.ok(prompt.length < 220, `prompt should stay tiny, got ${prompt.length} chars`);
+  });
+
+  it("schema asks for compact blobs and no rationale sentence", () => {
+    const schema = JSON.parse(isle.DESIGNER_SCHEMA);
+    assert.ok(!schema.required.includes("rationale"), "rationale costs decode tokens; drop it");
+    assert.equal(schema.properties.lakes.maxItems, 2);
+    assert.equal(schema.properties.forests.maxItems, 4);
+    assert.equal(schema.properties.peaks.maxItems, 3);
+    assert.equal(schema.properties.lakes.items.items.type, "integer");
+    assert.equal(schema.properties.lakes.items.maxItems, 3);
+    assert.ok(!isle.DESIGNER_SYSTEM.includes('"cx"'), "system prompt should teach the array form");
+    assert.ok(isle.DESIGNER_SYSTEM.includes("[50,48,18]"), "system prompt should show a compact example");
   });
 });
 
@@ -192,6 +217,22 @@ describe("Suggest timeout fallback", () => {
       designer.includes("Qwen2.5-0.5B-Instruct-q4f32_1-MLC"),
       "designer should use the smaller/faster model for cold-cache loads",
     );
+    assert.ok(
+      designer.includes("Qwen2.5-0.5B-Instruct-q4f16_1-MLC"),
+      "designer should prefer the faster-decoding f16 build when available",
+    );
+    assert.ok(
+      designer.includes("shader-f16"),
+      "f16 build should be gated on the shader-f16 WebGPU feature",
+    );
+    assert.ok(
+      designer.includes("warmUpDesigner"),
+      "engine should warm up at load so the first Suggest skips shader/grammar compile",
+    );
+    assert.ok(
+      designer.includes("max_tokens: 128"),
+      "compact plan format should cap generation at 128 tokens",
+    );
     const store = read("src", "stores", "suggest-store.ts");
     assert.ok(store.includes("TimeoutError"), "store should distinguish a timeout from other LLM failures");
     assert.ok(
@@ -200,6 +241,46 @@ describe("Suggest timeout fallback", () => {
     );
     const gridPanel = read("src", "components", "GridPanel.tsx");
     assert.ok(gridPanel.includes("last.notice"), "GridPanel should render the fallback notice");
+  });
+});
+
+describe("Suggest plan prefetch", () => {
+  it("keeps at most one prefetched generation and consumes it on Suggest", () => {
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(store.includes("prefetchSlot"), "store should hold a single prefetch slot");
+    assert.ok(
+      store.includes("if (!currentEngine || prefetchSlot) return;"),
+      "schedulePrefetch must not start while a plan is pending or ready",
+    );
+    assert.ok(
+      store.includes('prefetchSlot.status === "ready"'),
+      "Suggest should consume the ready prefetched plan",
+    );
+    assert.ok(
+      store.includes('prefetchSlot.status === "pending"'),
+      "Suggest should await the in-flight prefetch instead of starting a second generation",
+    );
+    const schedules = store.split("schedulePrefetch()").length - 1;
+    assert.ok(
+      schedules >= 3,
+      `prefetch should be kicked off at load, after Suggest, and after reset (got ${schedules} calls)`,
+    );
+  });
+
+  it("resets the prefetch on any grid size change", () => {
+    const store = read("src", "stores", "suggest-store.ts");
+    assert.ok(
+      store.includes("useGridStore.subscribe("),
+      "store should watch grid-size changes",
+    );
+    assert.ok(
+      store.includes("state.n !== prev.n"),
+      "any grid size change should reset the prefetch",
+    );
+    assert.ok(
+      store.includes("resetPrefetch"),
+      "store should reset (discard + re-prefetch) on resize",
+    );
   });
 });
 

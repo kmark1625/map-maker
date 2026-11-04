@@ -6,10 +6,9 @@ import type { TerrainId } from "@/stores/grid-store";
  * fallback when WebGPU / WebLLM is unavailable.
  *
  * Division of labor: the LLM proposes a plan (where lakes, forests, and
- * stone peaks go, plus a name and rationale), and the seeded generator
- * here paints a coherent island from it. LLM output is clamped and
- * sanitized, never painted verbatim. With no plan, mood presets drive
- * the same generator.
+ * stone peaks go, plus a name), and the seeded generator here paints a
+ * coherent island from it. LLM output is clamped and sanitized, never
+ * painted verbatim. With no plan, mood presets drive the same generator.
  */
 
 export type IslandMoodId = "serene" | "rugged" | "wild";
@@ -187,12 +186,27 @@ function sanitizeBlobs(value: unknown, max: number): IslandBlob[] {
   const out: IslandBlob[] = [];
   for (const raw of value) {
     if (out.length >= max) break;
-    if (typeof raw !== "object" || raw === null) continue;
-    const b = raw as Record<string, unknown>;
-    const cx = Number(b.cx);
-    const cy = Number(b.cy);
-    const r = Number(b.r);
-    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
+    let cx: number, cy: number, r: number;
+    if (Array.isArray(raw)) {
+      // Compact wire form: [cx, cy, r] as integer percents. Values that
+      // all look like 0..1 fractions are taken as fractions instead.
+      [cx, cy, r] = [Number(raw[0]), Number(raw[1]), Number(raw[2])];
+      if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
+      if (Math.abs(cx) > 1.5 || Math.abs(cy) > 1.5 || Math.abs(r) > 1.5) {
+        cx /= 100;
+        cy /= 100;
+        r /= 100;
+      }
+    } else if (typeof raw === "object" && raw !== null) {
+      // Legacy object form: {cx, cy, r} as 0..1 fractions.
+      const b = raw as Record<string, unknown>;
+      cx = Number(b.cx);
+      cy = Number(b.cy);
+      r = Number(b.r);
+      if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
+    } else {
+      continue;
+    }
     out.push({ cx: clamp(cx, 0, 1), cy: clamp(cy, 0, 1), r: clamp(r, 0.03, 0.35) });
   }
   return out;
@@ -214,9 +228,9 @@ export function parseIslandPlan(text: string): IslandPlan | null {
   }
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  const lakes = sanitizeBlobs(obj.lakes, 3);
-  const forests = sanitizeBlobs(obj.forests, 5);
-  const peaks = sanitizeBlobs(obj.peaks, 4);
+  const lakes = sanitizeBlobs(obj.lakes, 2);
+  const forests = sanitizeBlobs(obj.forests, 4);
+  const peaks = sanitizeBlobs(obj.peaks, 3);
   if (lakes.length + forests.length + peaks.length === 0) return null;
   const sandRim: SandRim =
     obj.sandRim === "none" || obj.sandRim === "wide" ? obj.sandRim : "narrow";
@@ -231,63 +245,46 @@ export function parseIslandPlan(text: string): IslandPlan | null {
   };
 }
 
+// Decode is the bottleneck for a small in-browser model, so the plan
+// format is built to be emitted in as few tokens as possible: features
+// are [cx, cy, r] integer percents (48 costs one token where 0.48
+// costs three, and an array drops the per-blob object keys), and the
+// model no longer writes a rationale sentence (the UI falls back to
+// the per-mood line). A typical plan decodes in ~80 tokens, down
+// from ~190 for the old {"cx": 0.48, ...} object form.
 export const DESIGNER_SYSTEM =
-  "You are the island designer of a small isometric map editor. You design a square island layout " +
-  "by placing soft circular features in normalized coordinates: cx and cy run 0 (top-left) to 1 (bottom-right), " +
-  "r is the radius as a fraction of the map size (0.05 is a pond, 0.2 is a large lake or mountain range). " +
-  "You choose lakes (water), forests, and peaks (stone), how wide the sandy shore around water is " +
-  '("none", "narrow", or "wide"), a short evocative island name, and a one-sentence rationale in the mood\'s voice. ' +
-  "Keep features mostly inside the map and leave some open grass. Reply with JSON only: " +
-  '{"name": "...", "rationale": "...", "lakes": [{"cx": 0.5, "cy": 0.5, "r": 0.18}], "forests": [], "peaks": [], "sandRim": "wide"}';
+  "You place circular features to design a square island for a map editor. " +
+  "Each feature is [cx, cy, r] in percents of the map size: cx, cy run 0-100 from the top-left, " +
+  "r is the radius percent (5 pond, 20 large lake or range). Choose lakes (water), forests, " +
+  'peaks (stone), sandRim ("none", "narrow", or "wide") for sandy shores, and a short island name. ' +
+  "Leave some open grass. " +
+  'Example: {"name":"Stillwater","lakes":[[50,48,18]],"forests":[[24,26,14]],"peaks":[],"sandRim":"wide"}';
 
+// No minItems: stick to schema keywords the previous (working)
+// grammar already used. Short arrays parse to NaN and are dropped.
 const BLOB_SCHEMA = {
-  type: "object",
-  properties: {
-    cx: { type: "number" },
-    cy: { type: "number" },
-    r: { type: "number" },
-  },
-  required: ["cx", "cy", "r"],
+  type: "array",
+  items: { type: "integer" },
+  maxItems: 3,
 };
 
 export const DESIGNER_SCHEMA = JSON.stringify({
   type: "object",
   properties: {
     name: { type: "string" },
-    rationale: { type: "string" },
-    lakes: { type: "array", items: BLOB_SCHEMA, maxItems: 3 },
-    forests: { type: "array", items: BLOB_SCHEMA, maxItems: 5 },
-    peaks: { type: "array", items: BLOB_SCHEMA, maxItems: 4 },
+    lakes: { type: "array", items: BLOB_SCHEMA, maxItems: 2 },
+    forests: { type: "array", items: BLOB_SCHEMA, maxItems: 4 },
+    peaks: { type: "array", items: BLOB_SCHEMA, maxItems: 3 },
     sandRim: { type: "string", enum: ["none", "narrow", "wide"] },
   },
-  required: ["name", "rationale", "lakes", "forests", "peaks", "sandRim"],
+  required: ["name", "lakes", "forests", "peaks", "sandRim"],
 });
 
-const TERRAIN_CHAR: Record<TerrainId, string> = {
-  grass: ".",
-  water: "~",
-  sand: "s",
-  stone: "#",
-  forest: "T",
-};
-
-export function buildDesignerPrompt(
-  terrainAt: (x: number, y: number) => TerrainId,
-  n: number,
-  mood: IslandMoodId,
-): string {
-  const rows: string[] = [];
-  for (let y = 0; y < n; y++) {
-    let row = "";
-    for (let x = 0; x < n; x++) row += TERRAIN_CHAR[terrainAt(x, y)];
-    rows.push(row);
-  }
-  return [
-    `The map is ${n}x${n}. Current layout for reference (design something fresh, do not copy it). Legend: .=grass ~=water s=sand #=stone T=forest.`,
-    rows.join("\n"),
-    ISLAND_MOOD_MAP[mood].brief,
-    "Design the island now. JSON only.",
-  ].join("\n");
+export function buildDesignerPrompt(n: number, mood: IslandMoodId): string {
+  // No dump of the current grid: the designer is told to design
+  // something fresh, so those n² prefill tokens bought nothing.
+  // Mood rotation plus sampling temperature provide the variety.
+  return `Map: ${n}x${n}. ${ISLAND_MOOD_MAP[mood].brief} JSON only.`;
 }
 
 function wanderBlobs(blobs: IslandBlob[], amount: number, rnd: () => number): IslandBlob[] {

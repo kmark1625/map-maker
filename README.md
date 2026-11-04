@@ -25,8 +25,11 @@ three moods — Serene lagoon, Rugged peaks, or Wild forest. By default it
 uses a built-in procedural generator. Loading the optional
 **Cartographer** instead runs a small LLM (Qwen2.5 0.5B via WebLLM)
 entirely in your browser on WebGPU to design the layout — no server or
-API key involved. If the LLM takes longer than ~5 seconds, the editor
-falls back to the procedural generator and says so.
+API key involved. Once loaded, it pre-designs one layout in the
+background so Suggest usually applies instantly; resizing the grid
+discards that pre-designed layout and pre-designs at the new size. If
+the LLM takes longer than ~5 seconds, the editor falls back to the
+procedural generator and says so.
 
 ## Getting started
 
