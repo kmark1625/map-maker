@@ -11,14 +11,15 @@ import {
   type TerrainId,
 } from "@/stores/grid-store";
 import { TILE_H, type CellCoord } from "@/lib/iso";
-import grassTile from "@/app/assets/images/tiles/grass_flat.webp";
-import waterTile from "@/app/assets/images/tiles/water_flat.webp";
-import sandTile from "@/app/assets/images/tiles/sand_flat.webp";
-import stoneTile from "@/app/assets/images/tiles/stone_flat.webp";
-import forestTile from "@/app/assets/images/tiles/forest_flat.webp";
+import grassTile from "@/app/assets/images/tile/base/grass_flat.webp";
+import waterTile from "@/app/assets/images/tile/base/water_flat.webp";
+import sandTile from "@/app/assets/images/tile/base/sand_flat.webp";
+import stoneTile from "@/app/assets/images/tile/base/stone_flat.webp";
+import forestTile from "@/app/assets/images/tile/base/forest_flat.webp";
 import sideTile from "@/app/assets/images/side_tiles/side_icy_mountain.webp";
-import cliffLipTile from "@/app/assets/images/tiles/cliff_with_grass_lip.webp";
-import bareRockTile from "@/app/assets/images/tiles/bare_cliff_rock.webp";
+import cliffLipTile from "@/app/assets/images/side_tiles/cliff_with_grass_lip.webp";
+import bareRockTile from "@/app/assets/images/side_tiles/bare_cliff_rock.webp";
+import underbellyTile from "@/app/assets/images/side_tiles/deep_underbelly_rock.webp";
 import {
   ISLAND_D,
   ISLAND_H,
@@ -75,10 +76,11 @@ const TILE_URLS: Record<TerrainId, string> = {
 const SURFACE_SIDE_URL = cliffLipTile.src;
 const ROCK_SIDE_URL = bareRockTile.src;
 const ICE_SIDE_URL = sideTile.src;
+const UNDERBELLY_SIDE_URL = underbellyTile.src;
 // z = 0 is the cap under the terrain, increasing downward (ISLAND_H = 10).
 // Bands follow floating_island_2.webp: icy blue cliffs above the waterline,
-// pale ice strata at the sea, deep submerged ice below (flat color, seen
-// only when orbiting under the ocean plane).
+// pale ice strata at the sea, deep underbelly rock below (seen only when
+// orbiting under the ocean plane).
 // Sea level for the iceberg-in-ocean read: plateau + upper cliff stay dry,
 // the tapering keel sits below the water.
 const SEA_Y = -CUBE * 2.1;
@@ -287,7 +289,7 @@ export default function ThreeCanvas({
     const islandSideMats = [
       new THREE.MeshLambertMaterial({ color: "#7fc4e4" }),
       new THREE.MeshLambertMaterial({ color: "#ffffff" }),
-      new THREE.MeshLambertMaterial({ color: "#2a6a9e" }), // submerged ice
+      new THREE.MeshLambertMaterial({ color: "#5b4a8a" }), // deep underbelly fallback
     ];
     // BoxGeometry group order is +x, -x, +y, -y, +z, -z.
     const islandBoxMatsByBand = islandSideMats.map((side) => [
@@ -334,7 +336,7 @@ export default function ThreeCanvas({
     );
     applySideTexture(ROCK_SIDE_URL, [islandSideMats[0]]);
     applySideTexture(ICE_SIDE_URL, [islandSideMats[1]]);
-    // Band 2 stays flat deep-ice blue: it is the submerged iceberg body.
+    applySideTexture(UNDERBELLY_SIDE_URL, [islandSideMats[2]]);
     const gridGroup = new THREE.Group();
     scene.add(gridGroup);
     const islandGroup = new THREE.Group();
